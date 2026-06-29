@@ -1,0 +1,17 @@
+.env
+.venv/
+.git/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.npm-cache/
+.npm-cache-railway/
+*.egg-info/
+.DS_Store
+file_cache/
+dev/
+miniapp/node_modules/
+miniapp/dist/
+miniapp/dist-harness/
+htmlcov/
+.coverage

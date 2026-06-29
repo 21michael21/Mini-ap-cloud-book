@@ -75,6 +75,7 @@ This repo deploys as three Railway resources:
 - Railway Postgres.
 
 The Mini App is served by the backend service over HTTPS, so `WEBAPP_URL` and `BACKEND_PUBLIC_URL` should usually be the same public Railway backend URL.
+The root `railway.json` uses the included Dockerfile and deploys the backend service by default. The Docker image installs Python dependencies, builds `miniapp/dist`, and starts the backend with Alembic migrations.
 
 Required env vars:
 
@@ -103,12 +104,13 @@ railway up --service telegram-library-backend
 In Railway settings for `telegram-library-backend`:
 
 ```text
-Build command: ./scripts/railway_backend_build.sh
+Builder: Dockerfile
 Start command: ./scripts/railway_backend_start.sh
+Healthcheck path: /health
 Volume mount: /data
 ```
 
-The backend start command runs `alembic upgrade head` before starting Uvicorn.
+The backend start command validates Railway env, runs `alembic upgrade head`, then starts Uvicorn. If the deploy crashes immediately, the logs should name the missing or invalid env var.
 
 Bot worker service:
 
@@ -125,15 +127,19 @@ railway up --service telegram-library-bot
 In Railway settings for `telegram-library-bot`:
 
 ```text
-Build command: python -m pip install -e .
+Builder: Dockerfile
 Start command: ./scripts/railway_bot_start.sh
 ```
+
+Use the same env vars as the backend service. The bot does not serve HTTP, so it should be a worker service, not the public Mini App URL.
 
 Postgres:
 
 ```bash
 railway add --database postgres
 ```
+
+If you create services from the GitHub repo in the Railway UI, create/link Postgres first, then add these variables to both backend and bot services. `DATABASE_URL` must come from the Railway Postgres service, not a local `localhost` URL. After Railway gives the backend a public HTTPS domain, set both `WEBAPP_URL` and `BACKEND_PUBLIC_URL` to that exact URL and redeploy/restart both services.
 
 After deploy, open the backend public URL in a browser. It should load the Mini App shell over HTTPS. The bot registers a Telegram menu button named `Library` on startup and still sends an `Open Library` Web App button after file uploads.
 
