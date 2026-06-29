@@ -47,11 +47,19 @@ export type TextReaderOptions = {
 
 export type PdfReaderController = {
   getPageNumber: () => number;
+  getZoom: () => number;
   pageCount: number;
   canvas: HTMLCanvasElement;
   renderPage: (page: number) => Promise<void>;
   previousPage: () => Promise<void>;
   nextPage: () => Promise<void>;
+  zoomOut: () => Promise<void>;
+  zoomIn: () => Promise<void>;
+};
+
+export type PdfReaderOptions = {
+  zoom?: number;
+  onZoom?: (zoom: number) => void;
 };
 
 export class BookFileError extends Error {
@@ -236,14 +244,8 @@ export async function openPdfReader(
   restoreLocator: string | null,
   onPosition: (position: Position) => void,
   onStatus?: (label: string) => void,
-): Promise<{
-  getPageNumber: () => number;
-  pageCount: number;
-  canvas: HTMLCanvasElement;
-  renderPage: (page: number) => Promise<void>;
-  previousPage: () => Promise<void>;
-  nextPage: () => Promise<void>;
-}> {
+  options: PdfReaderOptions = {},
+): Promise<PdfReaderController> {
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjs.getDocument({ data: buffer }).promise;
   const canvas = document.createElement("canvas");
@@ -251,36 +253,69 @@ export async function openPdfReader(
   container.replaceChildren(canvas);
   let pageNumber = parsePdfPage(restoreLocator, pdf.numPages);
   let requestedPage = pageNumber;
-  let renderQueue = Promise.resolve();
+  let zoom = clamp(options.zoom ?? 1, 0.7, 2.2);
+  let renderPromise: Promise<void> | null = null;
+  let requestedRenderId = 0;
+  let completedRenderId = -1;
 
-  const renderPageNow = async (page: number) => {
+  const renderPageNow = async (page: number, renderId: number) => {
     pageNumber = Math.min(Math.max(page, 1), pdf.numPages);
     const pdfPage = await pdf.getPage(pageNumber);
     const baseViewport = pdfPage.getViewport({ scale: 1 });
-    const scale = Math.min((container.clientWidth || window.innerWidth) / baseViewport.width, 1.6);
+    const fitWidthScale = (container.clientWidth || window.innerWidth) / baseViewport.width;
+    const scale = Math.min(fitWidthScale * zoom, 2.4);
     const viewport = pdfPage.getViewport({ scale });
     const context = canvas.getContext("2d")!;
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
+    const dpr = clamp(window.devicePixelRatio || 1, 1, 2.5);
+    const cssWidth = Math.ceil(viewport.width);
+    const cssHeight = Math.ceil(viewport.height);
+    canvas.width = Math.ceil(cssWidth * dpr);
+    canvas.height = Math.ceil(cssHeight * dpr);
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.clearRect(0, 0, cssWidth, cssHeight);
     await pdfPage.render({ canvas, canvasContext: context, viewport }).promise;
+    completedRenderId = renderId;
     onPosition({ locator: String(pageNumber), percent: (pageNumber / pdf.numPages) * 100 });
     onStatus?.(`${pageNumber} / ${pdf.numPages}`);
   };
 
+  const renderLatestRequestedPage = async () => {
+    while (completedRenderId !== requestedRenderId) {
+      const pageToRender = requestedPage;
+      const renderId = requestedRenderId;
+      await renderPageNow(pageToRender, renderId);
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    }
+  };
+
   const renderPage = async (page: number) => {
     requestedPage = Math.min(Math.max(page, 1), pdf.numPages);
-    renderQueue = renderQueue.catch(() => undefined).then(() => renderPageNow(requestedPage));
-    await renderQueue;
+    requestedRenderId += 1;
+    renderPromise ??= renderLatestRequestedPage().finally(() => {
+      renderPromise = null;
+    });
+    await renderPromise;
+  };
+
+  const setZoom = async (nextZoom: number) => {
+    zoom = clamp(nextZoom, 0.7, 2.2);
+    options.onZoom?.(zoom);
+    await renderPage(requestedPage);
   };
 
   await renderPage(pageNumber);
   return {
     getPageNumber: () => pageNumber,
+    getZoom: () => zoom,
     pageCount: pdf.numPages,
     canvas,
     renderPage,
     previousPage: () => renderPage(requestedPage - 1),
     nextPage: () => renderPage(requestedPage + 1),
+    zoomOut: () => setZoom(zoom - 0.15),
+    zoomIn: () => setZoom(zoom + 0.15),
   };
 }
 

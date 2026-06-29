@@ -21,6 +21,7 @@ type HarnessResult = {
   rendered: boolean;
   positionSaved: boolean;
   positionRestored: boolean;
+  highDpiCanvas?: boolean | null;
   cspViolations: string[];
   locator: string | null;
   error: string | null;
@@ -171,12 +172,14 @@ async function verifyPdf(book: Book): Promise<HarnessResult> {
   restoreStage.className = "reader-stage";
   card.append(restoreStage);
   const restored = await openPdfReader(restoreStage, file, persisted?.locator ?? null, () => undefined);
+  const highDpiCanvas = pdfCanvasUsesHighDpiBackingStore(restored.canvas);
 
   return {
     format: "pdf",
-    rendered: canvasHasInk(restored.canvas),
+    rendered: canvasHasInk(restored.canvas) && highDpiCanvas !== false,
     positionSaved: persisted?.locator === String(Math.min(2, reader.pageCount)),
     positionRestored: restored.getPageNumber() === Number(persisted?.locator),
+    highDpiCanvas,
     cspViolations: [...cspViolations],
     locator: persisted?.locator ?? null,
     error: null,
@@ -204,6 +207,14 @@ function canvasHasInk(canvas: HTMLCanvasElement): boolean {
     if (alpha > 0 && (red < 245 || green < 245 || blue < 245)) return true;
   }
   return false;
+}
+
+function pdfCanvasUsesHighDpiBackingStore(canvas: HTMLCanvasElement): boolean | null {
+  if ((window.devicePixelRatio || 1) <= 1) return null;
+  const cssWidth = Number.parseFloat(canvas.style.width);
+  const cssHeight = Number.parseFloat(canvas.style.height);
+  if (!Number.isFinite(cssWidth) || !Number.isFinite(cssHeight) || cssWidth <= 0 || cssHeight <= 0) return false;
+  return canvas.width > cssWidth && canvas.height > cssHeight;
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<void> {

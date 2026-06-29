@@ -1307,6 +1307,17 @@ body.reader-light .reader {
   font-weight: 700;
 }
 
+.reader-zoom-button {
+  min-width: 36px;
+  padding: 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.reader-theme-button {
+  padding: 0 9px;
+}
+
 .reader-toolbar #backButton span {
   display: none;
 }

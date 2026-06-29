@@ -78,6 +78,7 @@ let activeReaderDestroy: (() => void) | null = null;
 let activeTextReader: TextReaderController | null = null;
 let readerToolbarVisible = true;
 let readerFontSizePx = readReaderFontSize();
+let pdfZoom = readPdfZoom();
 
 function init() {
   tg?.ready?.();
@@ -951,7 +952,7 @@ function renderReader(book: Book) {
       ${
         isTextReader
           ? `<button class="secondary reader-font-button" id="readerFontDown" type="button" aria-label="Decrease font size">A-</button>`
-          : ""
+          : `<button class="secondary reader-zoom-button" id="readerZoomOut" type="button" aria-label="Zoom out">&minus;</button>`
       }
       <button class="secondary" id="readerPrev" type="button">Prev</button>
       <span class="reader-progress" id="readerProgress">Opening...</span>
@@ -959,9 +960,9 @@ function renderReader(book: Book) {
       ${
         isTextReader
           ? `<button class="secondary reader-font-button" id="readerFontUp" type="button" aria-label="Increase font size">A+</button>`
-          : ""
+          : `<button class="secondary reader-zoom-button" id="readerZoomIn" type="button" aria-label="Zoom in">+</button>`
       }
-      <button class="secondary" id="readerThemeButton" type="button">Theme</button>
+      <button class="secondary reader-theme-button" id="readerThemeButton" type="button">Theme</button>
     </div>
     <div class="reader-stage" id="readerStage"></div>
   `;
@@ -1042,6 +1043,14 @@ async function renderPdf(book: Book) {
           (pdfReader?.getPageNumber() ?? 1) > 1,
           (pdfReader?.getPageNumber() ?? 1) < (pdfReader?.pageCount ?? 1),
         ),
+      {
+        zoom: pdfZoom,
+        onZoom: (zoom) => {
+          pdfZoom = zoom;
+          window.localStorage.setItem("telegram-library-pdf-zoom", String(pdfZoom));
+          updatePdfZoomButtons(pdfZoom);
+        },
+      },
     );
 
     bindPdfReaderControls(pdfReader);
@@ -1066,6 +1075,9 @@ function bindPdfReaderControls(controller: PdfReaderController) {
   updateReaderControls(`${controller.getPageNumber()} / ${controller.pageCount}`, controller.getPageNumber() > 1, controller.getPageNumber() < controller.pageCount);
   document.querySelector("#readerPrev")?.addEventListener("click", () => void controller.previousPage());
   document.querySelector("#readerNext")?.addEventListener("click", () => void controller.nextPage());
+  document.querySelector("#readerZoomOut")?.addEventListener("click", () => void controller.zoomOut());
+  document.querySelector("#readerZoomIn")?.addEventListener("click", () => void controller.zoomIn());
+  updatePdfZoomButtons(controller.getZoom());
 }
 
 function updateReaderControls(label: string, canGoPrevious: boolean, canGoNext: boolean) {
@@ -1147,6 +1159,9 @@ function readerErrorCopy(error: unknown): { title: string; message: string } {
   if (error instanceof TypeError) {
     return { title: "Network problem", message: "Check your connection and try again." };
   }
+  if (activeBook?.format === "pdf") {
+    return { title: "Could not render this PDF", message: readableError(error) };
+  }
   return { title: "Could not open document", message: readableError(error) };
 }
 
@@ -1214,6 +1229,17 @@ function updateReaderFontButtons() {
 
 function readReaderFontSize(): number {
   return clamp(Number(window.localStorage.getItem("telegram-library-reader-font-size")) || 18, 15, 26);
+}
+
+function updatePdfZoomButtons(zoom: number) {
+  const down = document.querySelector<HTMLButtonElement>("#readerZoomOut");
+  const up = document.querySelector<HTMLButtonElement>("#readerZoomIn");
+  if (down) down.disabled = zoom <= 0.7;
+  if (up) up.disabled = zoom >= 2.2;
+}
+
+function readPdfZoom(): number {
+  return clamp(Number(window.localStorage.getItem("telegram-library-pdf-zoom")) || 1, 0.7, 2.2);
 }
 
 function highlightMatch(value: string): string {
