@@ -68,23 +68,93 @@ For local browser-only development, pass a generated Telegram `initData` string 
 
 ## Railway Deploy
 
-1. Create a Railway Postgres database.
-2. Create one service for the FastAPI backend:
+This repo deploys as three Railway resources:
 
-   ```bash
-   uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
-   ```
+- `telegram-library-backend`: FastAPI API and the built Mini App static files.
+- `telegram-library-bot`: aiogram worker.
+- Railway Postgres.
 
-3. Create one worker service for the bot:
+The Mini App is served by the backend service over HTTPS, so `WEBAPP_URL` and `BACKEND_PUBLIC_URL` should usually be the same public Railway backend URL.
 
-   ```bash
-   python -m bot.main
-   ```
+Required env vars:
 
-4. Add a Railway volume and point `FILE_CACHE_DIR` to it.
-5. Set `BOT_TOKEN`, `DATABASE_URL`, `WEBAPP_URL`, `FILE_CACHE_DIR`.
-6. Run `alembic upgrade head` during deploy or as a one-off Railway command.
-7. Deploy `miniapp/` as a static Vite app and set BotFather's Web App URL to that deploy URL.
+```text
+BOT_TOKEN=BotFather token
+DATABASE_URL=Railway Postgres connection URL
+WEBAPP_URL=https://your-backend.up.railway.app
+BACKEND_PUBLIC_URL=https://your-backend.up.railway.app
+FILE_CACHE_DIR=/data/file_cache
+INITDATA_MAX_AGE_SECONDS=86400
+MAX_TELEGRAM_DOWNLOAD_BYTES=20971520
+```
+
+Backend service:
+
+```bash
+railway service create telegram-library-backend
+railway variables --set "BOT_TOKEN=<botfather-token>" \
+  --set "DATABASE_URL=<railway-postgres-url>" \
+  --set "WEBAPP_URL=https://your-backend.up.railway.app" \
+  --set "BACKEND_PUBLIC_URL=https://your-backend.up.railway.app" \
+  --set "FILE_CACHE_DIR=/data/file_cache"
+railway up --service telegram-library-backend
+```
+
+In Railway settings for `telegram-library-backend`:
+
+```text
+Build command: ./scripts/railway_backend_build.sh
+Start command: ./scripts/railway_backend_start.sh
+Volume mount: /data
+```
+
+The backend start command runs `alembic upgrade head` before starting Uvicorn.
+
+Bot worker service:
+
+```bash
+railway service create telegram-library-bot
+railway variables --set "BOT_TOKEN=<botfather-token>" \
+  --set "DATABASE_URL=<railway-postgres-url>" \
+  --set "WEBAPP_URL=https://your-backend.up.railway.app" \
+  --set "BACKEND_PUBLIC_URL=https://your-backend.up.railway.app" \
+  --set "FILE_CACHE_DIR=/data/file_cache"
+railway up --service telegram-library-bot
+```
+
+In Railway settings for `telegram-library-bot`:
+
+```text
+Build command: python -m pip install -e .
+Start command: ./scripts/railway_bot_start.sh
+```
+
+Postgres:
+
+```bash
+railway add --database postgres
+```
+
+After deploy, open the backend public URL in a browser. It should load the Mini App shell over HTTPS. The bot registers a Telegram menu button named `Library` on startup and still sends an `Open Library` Web App button after file uploads.
+
+## Telegram Client E2E Checklist
+
+Run this in the real Telegram mobile client after Railway deploy:
+
+1. Open the bot chat and send a small EPUB file.
+   Expected: the bot replies `Added to Inbox: ...` with an `Open Library` button.
+2. Tap `Open Library`.
+   Expected: Telegram opens the Mini App over HTTPS; the library loads without login; the uploaded EPUB appears in Inbox.
+3. Tap the EPUB and read enough to change position.
+   Expected: the book renders inside Telegram; no external browser opens.
+4. Fully close the Mini App, reopen it from the bot, and tap `Continue reading`.
+   Expected: the same EPUB opens and restores the previous locator.
+5. Send a small PDF file and open it from the Mini App.
+   Expected: PDF page 1 renders; tapping the right side advances pages; closing and reopening restores the saved page number.
+6. Send a file larger than `MAX_TELEGRAM_DOWNLOAD_BYTES` (20 MB by default).
+   Expected: the file appears in the library as a `too_large` record with a `Download original` action; the Mini App does not call the in-app reader for it and tells the user to use the original Telegram message for download.
+
+If any Mini App request fails, check that `WEBAPP_URL` and `BACKEND_PUBLIC_URL` point to the same deployed HTTPS backend URL and that the bot service was restarted after env changes.
 
 ## Verification
 
@@ -112,7 +182,7 @@ VITE_API_BASE=http://localhost:8000 VITE_DEV_INIT_DATA="$INIT_DATA" npm run buil
 The Mini App CSP is intentionally strict:
 
 ```text
-default-src 'self'; script-src 'self' https://telegram.org https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:8000 https:; worker-src 'self' blob: https://cdn.jsdelivr.net; frame-src blob: data:; object-src 'none'; base-uri 'none';
+default-src 'self'; script-src 'self' https://telegram.org https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://telegram.org https://web.telegram.org; worker-src 'self' blob: https://cdn.jsdelivr.net; frame-src blob: data:; object-src 'none'; base-uri 'none';
 ```
 
 Book HTML is sanitized before rendering and placed in sandboxed iframes with `sandbox="allow-same-origin"` and no `allow-scripts`.

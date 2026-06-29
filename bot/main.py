@@ -9,6 +9,7 @@ from aiogram.filters import CommandStart
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    MenuButtonWebApp,
     Message,
     WebAppInfo,
 )
@@ -137,6 +138,12 @@ async def handle_document(message: Message) -> None:
 
 
 async def main() -> None:
+    await bot.set_chat_menu_button(
+        menu_button=MenuButtonWebApp(
+            text="Library",
+            web_app=WebAppInfo(url=settings.webapp_url),
+        )
+    )
     await dp.start_polling(bot)
 
 

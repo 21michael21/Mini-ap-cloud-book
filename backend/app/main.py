@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -37,6 +39,17 @@ app.add_middleware(
 @app.middleware("http")
 async def add_security_headers(request, call_next):
     response = await call_next(request)
+    settings = get_settings()
+    connect_src = " ".join(
+        origin
+        for origin in [
+            "'self'",
+            settings.backend_public_url.rstrip("/") if settings.backend_public_url else "",
+            "https://telegram.org",
+            "https://web.telegram.org",
+        ]
+        if origin
+    )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Content-Security-Policy"] = (
@@ -45,7 +58,7 @@ async def add_security_headers(request, call_next):
         "style-src 'self'; "
         "img-src 'self' data: blob:; "
         "font-src 'self' data:; "
-        "connect-src 'self' https:; "
+        f"connect-src {connect_src}; "
         "worker-src 'self' blob: https://cdn.jsdelivr.net; "
         "frame-src blob: data:; "
         "object-src 'none'; "
@@ -270,3 +283,8 @@ def create_event(
     log_event(db, user.id, payload.type, payload.book_id, payload.meta)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+miniapp_dist = Path(__file__).resolve().parents[2] / "miniapp" / "dist"
+if miniapp_dist.exists():
+    app.mount("/", StaticFiles(directory=miniapp_dist, html=True), name="miniapp")

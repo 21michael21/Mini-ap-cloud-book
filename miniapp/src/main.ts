@@ -28,7 +28,7 @@ type Home = {
 
 type View = "home" | "library" | "reader";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE ?? window.location.origin;
 const appEl = document.querySelector<HTMLDivElement>("#app")!;
 const tg = window.Telegram?.WebApp;
 
@@ -233,7 +233,11 @@ function renderBookCard(book: Book): string {
       <div class="cover">${escapeHtml(book.format)}</div>
       <div>
         ${bookSummary(book)}
-        <button class="secondary" data-open="${book.id}">${book.too_large ? "Details" : "Read"}</button>
+        ${
+          book.too_large
+            ? `<button class="secondary" data-download="${book.id}">Download original</button>`
+            : `<button class="secondary" data-open="${book.id}">Read</button>`
+        }
         <button class="secondary" data-move="${book.id}">Move</button>
       </div>
     </article>
@@ -275,6 +279,16 @@ function bindBookButtons() {
     button.addEventListener("click", () => {
       const book = booksState.find((item) => item.id === Number(button.dataset.move));
       if (book) void moveBook(book);
+    });
+  });
+  document.querySelectorAll<HTMLElement>("[data-download]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = Number(button.dataset.download);
+      void api<void>("/api/events", {
+        method: "POST",
+        body: JSON.stringify({ type: "too_large_file_opened", book_id: id }),
+      });
+      window.alert("This file is over 20 MB. Use the original Telegram message to download it.");
     });
   });
 }

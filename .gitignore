@@ -3,6 +3,7 @@
 __pycache__/
 .pytest_cache/
 .npm-cache/
+.npm-cache-railway/
 *.egg-info/
 .mypy_cache/
 *.pyc
