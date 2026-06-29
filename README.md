@@ -89,6 +89,8 @@ INITDATA_MAX_AGE_SECONDS=86400
 MAX_TELEGRAM_DOWNLOAD_BYTES=20971520
 ```
 
+Railway Postgres may provide `DATABASE_URL` as `postgresql://...`; the app normalizes it to the installed `psycopg` v3 SQLAlchemy driver at startup.
+
 Backend service:
 
 ```bash
