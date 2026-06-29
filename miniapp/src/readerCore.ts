@@ -31,11 +31,18 @@ export type TextReaderStatus = {
 export type TextReaderController = {
   previousSection: () => Promise<void>;
   nextSection: () => Promise<void>;
+  setFontSize: (fontSizePx: number) => void;
   saveNow: () => void;
   destroy: () => void;
   getSectionIndex: () => number;
   getScrollRatio: () => number;
   getSectionCount: () => number;
+};
+
+export type TextReaderOptions = {
+  fontSizePx?: number;
+  onTap?: () => void;
+  onNearTop?: () => void;
 };
 
 export type PdfReaderController = {
@@ -113,6 +120,7 @@ export async function openFoliateReader(
   onVisibleText?: (text: string) => void,
   format?: string,
   onStatus?: (status: TextReaderStatus) => void,
+  options: TextReaderOptions = {},
 ): Promise<TextReaderController> {
   const normalizedFormat = format?.toLowerCase();
   const isTxt = normalizedFormat === "txt" || file.name.toLowerCase().endsWith(".txt");
@@ -127,6 +135,8 @@ export async function openFoliateReader(
   let iframe: HTMLIFrameElement | null = null;
   let scrollTimer = 0;
   let destroyed = false;
+  let isSwitchingSection = false;
+  let fontSizePx = options.fontSizePx ?? 18;
 
   const save = () => {
     if (destroyed) return;
@@ -145,6 +155,7 @@ export async function openFoliateReader(
   const debouncedSave = () => {
     window.clearTimeout(scrollTimer);
     scrollTimer = window.setTimeout(save, 250);
+    if (getIframeScrollTop(iframe) <= 24) options.onNearTop?.();
   };
 
   const emitStatus = () => {
@@ -163,7 +174,15 @@ export async function openFoliateReader(
     window.clearTimeout(scrollTimer);
     sectionIndex = clamp(Math.round(nextIndex), 0, sections.length - 1);
     scrollRatio = clamp(nextScrollRatio, 0, 1);
-    iframe = await renderSectionIframe(container, file.name, sections[sectionIndex], scrollRatio, debouncedSave);
+    iframe = await renderSectionIframe(
+      container,
+      file.name,
+      sections[sectionIndex],
+      scrollRatio,
+      debouncedSave,
+      () => options.onTap?.(),
+      fontSizePx,
+    );
     const renderedText = iframe.contentDocument?.body?.innerText?.trim();
     if (!renderedText) throw new Error("This document opened, but no readable text was found.");
     onVisibleText?.(renderedText);
@@ -178,12 +197,26 @@ export async function openFoliateReader(
 
   return {
     previousSection: async () => {
-      if (sectionIndex <= 0) return;
-      await renderSection(sectionIndex - 1, 0, true);
+      if (isSwitchingSection || sectionIndex <= 0) return;
+      isSwitchingSection = true;
+      try {
+        await renderSection(sectionIndex - 1, 0, true);
+      } finally {
+        isSwitchingSection = false;
+      }
     },
     nextSection: async () => {
-      if (sectionIndex >= sections.length - 1) return;
-      await renderSection(sectionIndex + 1, 0, true);
+      if (isSwitchingSection || sectionIndex >= sections.length - 1) return;
+      isSwitchingSection = true;
+      try {
+        await renderSection(sectionIndex + 1, 0, true);
+      } finally {
+        isSwitchingSection = false;
+      }
+    },
+    setFontSize: (nextFontSizePx: number) => {
+      fontSizePx = clamp(nextFontSizePx, 15, 26);
+      applyIframeFontSize(iframe, fontSizePx);
     },
     saveNow: save,
     destroy: () => {
@@ -217,6 +250,7 @@ export async function openPdfReader(
   canvas.className = "pdf-canvas";
   container.replaceChildren(canvas);
   let pageNumber = parsePdfPage(restoreLocator, pdf.numPages);
+  let requestedPage = pageNumber;
   let renderQueue = Promise.resolve();
 
   const renderPageNow = async (page: number) => {
@@ -234,7 +268,8 @@ export async function openPdfReader(
   };
 
   const renderPage = async (page: number) => {
-    renderQueue = renderQueue.catch(() => undefined).then(() => renderPageNow(page));
+    requestedPage = Math.min(Math.max(page, 1), pdf.numPages);
+    renderQueue = renderQueue.catch(() => undefined).then(() => renderPageNow(requestedPage));
     await renderQueue;
   };
 
@@ -244,8 +279,8 @@ export async function openPdfReader(
     pageCount: pdf.numPages,
     canvas,
     renderPage,
-    previousPage: () => renderPage(pageNumber - 1),
-    nextPage: () => renderPage(pageNumber + 1),
+    previousPage: () => renderPage(requestedPage - 1),
+    nextPage: () => renderPage(requestedPage + 1),
   };
 }
 
@@ -380,6 +415,8 @@ async function renderSectionIframe(
   section: RenderableSection,
   restoreScrollRatio: number,
   onScroll: () => void,
+  onTap: () => void,
+  fontSizePx: number,
 ): Promise<HTMLIFrameElement> {
   const { src, srcdoc } = await makeSafeSectionUrl(section);
   const iframe = document.createElement("iframe");
@@ -407,8 +444,14 @@ async function renderSectionIframe(
     }
   });
   await new Promise((resolve) => window.requestAnimationFrame(resolve));
+  applyIframeFontSize(iframe, fontSizePx);
   setIframeScrollRatio(iframe, restoreScrollRatio);
   iframe.contentWindow?.addEventListener("scroll", onScroll, { passive: true });
+  iframe.contentDocument?.addEventListener("pointerup", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest("a, button, input, select, textarea")) return;
+    onTap();
+  });
   return iframe;
 }
 
@@ -469,11 +512,33 @@ function getIframeScrollRatio(iframe: HTMLIFrameElement | null): number {
   return clamp(scroller.scrollTop / maxScroll, 0, 1);
 }
 
+function getIframeScrollTop(iframe: HTMLIFrameElement | null): number {
+  return getIframeScroller(iframe)?.scrollTop ?? 0;
+}
+
 function setIframeScrollRatio(iframe: HTMLIFrameElement, ratio: number): void {
   const scroller = getIframeScroller(iframe);
   if (!scroller) return;
   const maxScroll = Math.max(scroller.scrollHeight - scroller.clientHeight, 0);
   scroller.scrollTop = clamp(ratio, 0, 1) * maxScroll;
+}
+
+function applyIframeFontSize(iframe: HTMLIFrameElement | null, fontSizePx: number): void {
+  const doc = iframe?.contentDocument;
+  if (!doc) return;
+  if (!doc.querySelector('link[data-reader-content-css="true"]')) {
+    const link = doc.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "/reader-content.css";
+    link.dataset.readerContentCss = "true";
+    (doc.head ?? doc.documentElement).prepend(link);
+  }
+  const size = Math.round(clamp(fontSizePx, 15, 26));
+  const root = doc.documentElement;
+  Array.from(root.classList)
+    .filter((className) => className.startsWith("reader-font-"))
+    .forEach((className) => root.classList.remove(className));
+  root.classList.add(`reader-font-${size}`);
 }
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {

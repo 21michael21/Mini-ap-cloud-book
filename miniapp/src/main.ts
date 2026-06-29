@@ -75,6 +75,9 @@ let appTheme: AppTheme = readAppTheme();
 let readerTheme: "light" | "dark" = "dark";
 let activeReaderSave: (() => void) | null = null;
 let activeReaderDestroy: (() => void) | null = null;
+let activeTextReader: TextReaderController | null = null;
+let readerToolbarVisible = true;
+let readerFontSizePx = readReaderFontSize();
 
 function init() {
   tg?.ready?.();
@@ -938,13 +941,26 @@ function findBook(id: number): Book | undefined {
 
 function renderReader(book: Book) {
   cleanupActiveReader(false);
+  readerToolbarVisible = true;
+  activeTextReader = null;
+  const isTextReader = book.format !== "pdf";
   appEl.className = "reader";
   appEl.innerHTML = `
-    <div class="reader-toolbar">
-      <button class="secondary" id="backButton" type="button">${icon("arrowLeft")}<span>Back</span></button>
-      <button class="secondary" id="readerPrev" type="button">Previous</button>
+    <div class="reader-toolbar" id="readerToolbar">
+      <button class="secondary" id="backButton" type="button" aria-label="Back">${icon("arrowLeft")}<span>Back</span></button>
+      ${
+        isTextReader
+          ? `<button class="secondary reader-font-button" id="readerFontDown" type="button" aria-label="Decrease font size">A-</button>`
+          : ""
+      }
+      <button class="secondary" id="readerPrev" type="button">Prev</button>
       <span class="reader-progress" id="readerProgress">Opening...</span>
       <button class="secondary" id="readerNext" type="button">Next</button>
+      ${
+        isTextReader
+          ? `<button class="secondary reader-font-button" id="readerFontUp" type="button" aria-label="Increase font size">A+</button>`
+          : ""
+      }
       <button class="secondary" id="readerThemeButton" type="button">Theme</button>
     </div>
     <div class="reader-stage" id="readerStage"></div>
@@ -954,6 +970,17 @@ function renderReader(book: Book) {
     void loadHome();
   });
   document.querySelector("#readerThemeButton")?.addEventListener("click", toggleReaderTheme);
+  document.querySelector("#readerStage")?.addEventListener("click", (event) => {
+    if ((event.target as HTMLElement).closest("button, a, input, select, textarea")) return;
+    toggleReaderToolbar();
+  });
+  document.querySelector("#readerStage")?.addEventListener("scroll", () => {
+    const stage = document.querySelector<HTMLElement>("#readerStage");
+    if ((stage?.scrollTop ?? 0) <= 24) showReaderToolbar();
+  }, { passive: true });
+  document.querySelector("#readerFontDown")?.addEventListener("click", () => changeReaderFontSize(-1));
+  document.querySelector("#readerFontUp")?.addEventListener("click", () => changeReaderFontSize(1));
+  updateReaderToolbarVisibility();
 
   if (book.too_large) {
     renderDownloadOriginal(document.querySelector<HTMLElement>("#readerStage")!, book);
@@ -983,6 +1010,11 @@ async function renderTextBook(book: Book) {
       undefined,
       book.format,
       (status) => updateReaderControls(status.label, status.canGoPrevious, status.canGoNext),
+      {
+        fontSizePx: readerFontSizePx,
+        onTap: toggleReaderToolbar,
+        onNearTop: showReaderToolbar,
+      },
     );
     bindTextReaderControls(controller);
   } catch (error) {
@@ -1019,13 +1051,16 @@ async function renderPdf(book: Book) {
 }
 
 function bindTextReaderControls(controller: TextReaderController) {
+  activeTextReader = controller;
   activeReaderSave = controller.saveNow;
   activeReaderDestroy = controller.destroy;
   document.querySelector("#readerPrev")?.addEventListener("click", () => void controller.previousSection());
   document.querySelector("#readerNext")?.addEventListener("click", () => void controller.nextSection());
+  updateReaderFontButtons();
 }
 
 function bindPdfReaderControls(controller: PdfReaderController) {
+  activeTextReader = null;
   activeReaderSave = null;
   activeReaderDestroy = null;
   updateReaderControls(`${controller.getPageNumber()} / ${controller.pageCount}`, controller.getPageNumber() > 1, controller.getPageNumber() < controller.pageCount);
@@ -1047,6 +1082,7 @@ function cleanupActiveReader(save: boolean) {
   activeReaderDestroy?.();
   activeReaderSave = null;
   activeReaderDestroy = null;
+  activeTextReader = null;
 }
 
 function renderReaderLoading(stage: HTMLElement) {
@@ -1066,11 +1102,17 @@ function renderReaderError(stage: HTMLElement, book: Book, error: unknown) {
       <h2>${escapeHtml(title)}</h2>
       <p>${escapeHtml(message)}</p>
       <button class="ghost-button" type="button" id="readerRetry">Retry</button>
+      <button class="ghost-button" type="button" id="readerBackLibrary">Back to Library</button>
     </div>
   `;
   document.querySelector("#readerRetry")?.addEventListener("click", () => {
     if (book.format === "pdf") void renderPdf(book);
     else void renderTextBook(book);
+  });
+  document.querySelector("#readerBackLibrary")?.addEventListener("click", () => {
+    cleanupActiveReader(true);
+    activeBook = null;
+    void loadBooks(selectedFolderId);
   });
 }
 
@@ -1139,6 +1181,39 @@ function readAppTheme(): AppTheme {
 function toggleReaderTheme() {
   readerTheme = readerTheme === "dark" ? "light" : "dark";
   document.body.classList.toggle("reader-light", readerTheme === "light");
+}
+
+function toggleReaderToolbar() {
+  readerToolbarVisible = !readerToolbarVisible;
+  updateReaderToolbarVisibility();
+}
+
+function showReaderToolbar() {
+  if (readerToolbarVisible) return;
+  readerToolbarVisible = true;
+  updateReaderToolbarVisibility();
+}
+
+function updateReaderToolbarVisibility() {
+  document.querySelector<HTMLElement>("#readerToolbar")?.classList.toggle("is-hidden", !readerToolbarVisible);
+}
+
+function changeReaderFontSize(delta: number) {
+  readerFontSizePx = clamp(readerFontSizePx + delta, 15, 26);
+  window.localStorage.setItem("telegram-library-reader-font-size", String(readerFontSizePx));
+  activeTextReader?.setFontSize(readerFontSizePx);
+  updateReaderFontButtons();
+}
+
+function updateReaderFontButtons() {
+  const down = document.querySelector<HTMLButtonElement>("#readerFontDown");
+  const up = document.querySelector<HTMLButtonElement>("#readerFontUp");
+  if (down) down.disabled = readerFontSizePx <= 15;
+  if (up) up.disabled = readerFontSizePx >= 26;
+}
+
+function readReaderFontSize(): number {
+  return clamp(Number(window.localStorage.getItem("telegram-library-reader-font-size")) || 18, 15, 26);
 }
 
 function highlightMatch(value: string): string {

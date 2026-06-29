@@ -1,0 +1,66 @@
+html.reader-font-15 {
+  font-size: 15px;
+}
+
+html.reader-font-16 {
+  font-size: 16px;
+}
+
+html.reader-font-17 {
+  font-size: 17px;
+}
+
+html.reader-font-18 {
+  font-size: 18px;
+}
+
+html.reader-font-19 {
+  font-size: 19px;
+}
+
+html.reader-font-20 {
+  font-size: 20px;
+}
+
+html.reader-font-21 {
+  font-size: 21px;
+}
+
+html.reader-font-22 {
+  font-size: 22px;
+}
+
+html.reader-font-23 {
+  font-size: 23px;
+}
+
+html.reader-font-24 {
+  font-size: 24px;
+}
+
+html.reader-font-25 {
+  font-size: 25px;
+}
+
+html.reader-font-26 {
+  font-size: 26px;
+}
+
+body {
+  padding: 0 18px 28px;
+  font-size: 1rem;
+  line-height: 1.62;
+}
+
+pre {
+  white-space: pre-wrap;
+  font: inherit;
+  line-height: 1.62;
+}
+
+img,
+svg,
+video {
+  max-width: 100%;
+  height: auto;
+}
