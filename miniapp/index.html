@@ -5,7 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' https://telegram.org https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://telegram.org https://web.telegram.org; worker-src 'self' blob: https://cdn.jsdelivr.net; frame-src blob: data:; object-src 'none'; base-uri 'none';"
+      content="default-src 'self'; script-src 'self' https://telegram.org https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://telegram.org https://web.telegram.org; worker-src 'self' blob: https://cdn.jsdelivr.net; frame-src blob: data:; object-src 'none'; base-uri 'none';"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,500;7..72,600&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
     />
     <title>Telegram Library</title>
   </head>
