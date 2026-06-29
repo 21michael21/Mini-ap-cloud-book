@@ -181,3 +181,24 @@ def test_too_large_book_file_endpoint_returns_413(client: TestClient) -> None:
     response = client.get(f"/api/books/{ids['too_large']}/file", headers=auth_headers(1001))
 
     assert response.status_code == 413
+
+
+def test_create_duplicate_folder_returns_409(client: TestClient) -> None:
+    headers = auth_headers(1001)
+    created = client.post("/api/folders", json={"name": "Research"}, headers=headers)
+    duplicate = client.post("/api/folders", json={"name": "Research"}, headers=headers)
+
+    assert created.status_code == 201
+    assert duplicate.status_code == 409
+
+
+def test_rename_duplicate_folder_returns_409(client: TestClient) -> None:
+    headers = auth_headers(1001)
+    first = client.post("/api/folders", json={"name": "Research"}, headers=headers)
+    second = client.post("/api/folders", json={"name": "Archive"}, headers=headers)
+
+    response = client.patch(f"/api/folders/{second.json()['id']}", json={"name": "Research"}, headers=headers)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert response.status_code == 409

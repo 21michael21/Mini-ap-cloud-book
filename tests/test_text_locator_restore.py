@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import json
+
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
@@ -18,8 +20,14 @@ SAMPLES = {
 }
 
 
-@pytest.mark.parametrize("fmt,locator", [("fb2", "epubcfi(/2/1:12)"), ("txt", "epubcfi(/2/1:7)")])
-def test_text_reader_locator_restores_exact_value_after_reload(fmt: str, locator: str) -> None:
+@pytest.mark.parametrize(
+    "fmt,locator",
+    [
+        ("fb2", json.dumps({"type": "text", "sectionIndex": 1, "scrollRatio": 0.35})),
+        ("txt", json.dumps({"type": "txt", "scrollRatio": 0.55})),
+    ],
+)
+def test_text_json_locator_persists_without_schema_change(fmt: str, locator: str) -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     sample = SAMPLES[fmt]

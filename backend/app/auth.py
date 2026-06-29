@@ -34,7 +34,10 @@ def validate_init_data(init_data: str, bot_token: str, max_age_seconds: int) -> 
     if not auth_date_raw:
         raise ValueError("auth_date is missing")
     auth_date = int(auth_date_raw)
-    if time.time() - auth_date > max_age_seconds:
+    now = time.time()
+    if auth_date - now > 300:
+        raise ValueError("initData auth_date is in the future")
+    if now - auth_date > max_age_seconds:
         raise ValueError("initData is stale")
 
     data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(pairs.items()))

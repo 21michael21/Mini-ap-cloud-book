@@ -1,4 +1,12 @@
-import { apiHeaders, fetchBookFile, openFoliateReader, openPdfReader, type Position } from "./readerCore";
+import {
+  apiHeaders,
+  fetchBookFile,
+  openFoliateReader,
+  openPdfReader,
+  parseTextLocator,
+  parseTxtLocator,
+  type Position,
+} from "./readerCore";
 import "./styles.css";
 
 type Book = {
@@ -86,7 +94,7 @@ async function verifyTextFormat(book: Book): Promise<HarnessResult> {
   let saved: Position | null = null;
   let saveDone: Promise<void> = Promise.resolve();
   const file = await fetchBookFile(API_BASE, INIT_DATA, book);
-  await openFoliateReader(
+  const reader = await openFoliateReader(
     stage,
     file,
     null,
@@ -97,15 +105,22 @@ async function verifyTextFormat(book: Book): Promise<HarnessResult> {
     (text) => {
       visibleText = text;
     },
+    book.format,
   );
-  await waitFor(() => Boolean(visibleText) && Boolean(saved?.locator), 7000);
+  if (book.format === "txt") {
+    scrollReaderFrame(stage, 0.55);
+  } else {
+    await reader.nextSection();
+    scrollReaderFrame(stage, 0.35);
+  }
+  await waitFor(() => Boolean(visibleText) && Boolean(saved?.locator) && (saved?.percent ?? 0) > 0, 7000);
   await saveDone;
   const persisted = await getPosition(book.id);
   const restoreStage = document.createElement("div");
   restoreStage.className = "reader-stage";
   card.append(restoreStage);
   let restoredText = "";
-  await openFoliateReader(
+  const restoredReader = await openFoliateReader(
     restoreStage,
     file,
     persisted?.locator ?? null,
@@ -113,14 +128,25 @@ async function verifyTextFormat(book: Book): Promise<HarnessResult> {
     (text) => {
       restoredText = text;
     },
+    book.format,
   );
   await waitFor(() => Boolean(restoredText), 7000);
+  const textLocator = book.format === "txt" ? null : parseTextLocator(persisted?.locator, 20);
+  const txtLocator = book.format === "txt" ? parseTxtLocator(persisted?.locator) : null;
+  const expectedSectionRestored = book.format === "txt" || restoredReader.getSectionIndex() === textLocator?.sectionIndex;
+  const expectedScrollRestored =
+    book.format === "txt"
+      ? Math.abs(restoredReader.getScrollRatio() - (txtLocator?.scrollRatio ?? 0)) < 0.15
+      : Math.abs(restoredReader.getScrollRatio() - (textLocator?.scrollRatio ?? 0)) < 0.15;
 
   return {
     format: book.format,
     rendered: visibleText.includes("Harness") || restoredText.includes("Harness"),
-    positionSaved: Boolean(persisted?.locator?.startsWith("epubcfi(")),
-    positionRestored: Boolean(restoredText && persisted?.locator),
+    positionSaved:
+      book.format === "txt"
+        ? Boolean(txtLocator && txtLocator.scrollRatio > 0 && (persisted?.percent ?? 0) > 0)
+        : Boolean(textLocator && textLocator.sectionIndex > 0 && (persisted?.percent ?? 0) > 0),
+    positionRestored: Boolean(restoredText && expectedSectionRestored && expectedScrollRestored),
     cspViolations: [...cspViolations],
     locator: persisted?.locator ?? null,
     error: null,
@@ -137,7 +163,7 @@ async function verifyPdf(book: Book): Promise<HarnessResult> {
     saved = position;
     saveDone = savePosition(book.id, position);
   });
-  await reader.renderPage(Math.min(2, reader.pageCount));
+  await reader.nextPage();
   await waitFor(() => saved?.locator === String(Math.min(2, reader.pageCount)), 3000);
   await saveDone;
   const persisted = await getPosition(book.id);
@@ -155,6 +181,15 @@ async function verifyPdf(book: Book): Promise<HarnessResult> {
     locator: persisted?.locator ?? null,
     error: null,
   };
+}
+
+function scrollReaderFrame(stage: HTMLElement, ratio: number): void {
+  const frame = stage.querySelector<HTMLIFrameElement>(".book-frame");
+  const scroller = frame?.contentDocument?.scrollingElement;
+  if (!frame?.contentWindow || !scroller) return;
+  const maxScroll = Math.max(scroller.scrollHeight - scroller.clientHeight, 0);
+  scroller.scrollTop = maxScroll * ratio;
+  frame.contentWindow.dispatchEvent(new Event("scroll"));
 }
 
 function canvasHasInk(canvas: HTMLCanvasElement): boolean {
@@ -183,6 +218,7 @@ async function run(): Promise<void> {
   root.className = "app stack";
   root.innerHTML = `<h1 class="title">Reader Harness</h1>`;
   if (!INIT_DATA) throw new Error("VITE_DEV_INIT_DATA is required");
+  verifyInvalidLocatorsStartAtBeginning();
   const books = await api<Book[]>("/api/books");
   const results: HarnessResult[] = [];
 
@@ -223,6 +259,19 @@ async function run(): Promise<void> {
     "beforeend",
     `<pre id="results">${escapeHtml(JSON.stringify(results, null, 2))}</pre>`,
   );
+}
+
+function verifyInvalidLocatorsStartAtBeginning(): void {
+  for (const value of ["", "not-json", "epubcfi(/2/1:12)"]) {
+    const text = parseTextLocator(value, 3);
+    const txt = parseTxtLocator(value);
+    if (text.sectionIndex !== 0 || text.scrollRatio !== 0) {
+      throw new Error(`Invalid text locator did not start at beginning: ${value}`);
+    }
+    if (txt.scrollRatio !== 0) {
+      throw new Error(`Invalid txt locator did not start at beginning: ${value}`);
+    }
+  }
 }
 
 function escapeHtml(value: string): string {

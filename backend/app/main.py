@@ -2,11 +2,12 @@ import mimetypes
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Select, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.app.auth import current_user
@@ -213,9 +214,13 @@ def create_folder(
     next_order = db.scalar(select(func.coalesce(func.max(Folder.sort_order), 0)).where(Folder.user_id == user.id))
     folder = Folder(user_id=user.id, name=payload.name.strip(), sort_order=(next_order or 0) + 1)
     db.add(folder)
-    db.flush()
-    log_event(db, user.id, "folder_created", meta={"folder_id": folder.id})
-    db.commit()
+    try:
+        db.flush()
+        log_event(db, user.id, "folder_created", meta={"folder_id": folder.id})
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Folder already exists") from exc
     db.refresh(folder)
     return folder
 
@@ -229,7 +234,11 @@ def rename_folder(
 ) -> Folder:
     folder = owned_folder_or_404(db, user, folder_id)
     folder.name = payload.name.strip()
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Folder already exists") from exc
     db.refresh(folder)
     return folder
 

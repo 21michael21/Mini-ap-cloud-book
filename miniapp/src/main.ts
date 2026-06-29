@@ -1,4 +1,12 @@
-import { BookFileError, apiHeaders, fetchBookFile, openFoliateReader, openPdfReader } from "./readerCore";
+import {
+  BookFileError,
+  type PdfReaderController,
+  type TextReaderController,
+  apiHeaders,
+  fetchBookFile,
+  openFoliateReader,
+  openPdfReader,
+} from "./readerCore";
 import "./styles.css";
 
 type Book = {
@@ -28,7 +36,10 @@ type Home = {
 
 type View = "home" | "library" | "reader";
 type LibraryScope = "inbox" | "all" | number;
-type SheetState = { kind: "move"; book: Book; targetFolderId: number | null } | null;
+type SheetState =
+  | { kind: "move"; book: Book; targetFolderId: number | null }
+  | { kind: "folder"; name: string; error: string | null }
+  | null;
 type AppTheme = "day" | "night";
 
 class ApiError extends Error {
@@ -59,6 +70,8 @@ let isLibraryLoading = false;
 let errorMessage: string | null = null;
 let appTheme: AppTheme = readAppTheme();
 let readerTheme: "light" | "dark" = "dark";
+let activeReaderSave: (() => void) | null = null;
+let activeReaderDestroy: (() => void) | null = null;
 
 function init() {
   tg?.ready?.();
@@ -131,16 +144,26 @@ async function loadBooks(scope: LibraryScope = selectedFolderId) {
 }
 
 async function createFolder() {
-  const name = window.prompt("Folder name");
-  if (!name?.trim()) return;
-  await api<Folder>("/api/folders", {
-    method: "POST",
-    body: JSON.stringify({ name: name.trim() }),
-  });
-  if (view === "library") {
-    await loadBooks(selectedFolderId);
-  } else {
-    await loadHome();
+  activeSheet = { kind: "folder", name: "", error: null };
+  render();
+}
+
+async function submitFolder(name: string) {
+  if (!name.trim()) return;
+  try {
+    await api<Folder>("/api/folders", {
+      method: "POST",
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    activeSheet = null;
+    if (view === "library") {
+      await loadBooks(selectedFolderId);
+    } else {
+      await loadHome();
+    }
+  } catch (error) {
+    activeSheet = { kind: "folder", name, error: readableError(error) };
+    render();
   }
 }
 
@@ -425,6 +448,7 @@ function renderBookRow(book: Book, index: number): string {
         <p>${escapeHtml(book.author ?? "Unknown author")}</p>
         ${renderProgress(book, "Reading progress")}
       </div>
+      <button class="row-menu-button" type="button" data-row-menu="${book.id}" aria-label="Book actions">${icon("more")}</button>
     </article>
   `;
 }
@@ -471,6 +495,7 @@ function renderNav(): string {
 
 function renderSheet(sheet: SheetState): string {
   if (!sheet) return "";
+  if (sheet.kind === "folder") return renderFolderSheet(sheet);
   return `
     <div class="sheet-layer" id="sheetScrim">
       <section class="bottom-sheet sheet-up" aria-label="Move book">
@@ -505,6 +530,24 @@ function renderSheet(sheet: SheetState): string {
   `;
 }
 
+function renderFolderSheet(sheet: Extract<SheetState, { kind: "folder" }>): string {
+  return `
+    <div class="sheet-layer" id="sheetScrim">
+      <section class="bottom-sheet sheet-up" aria-label="Create folder">
+        <div class="sheet-handle"></div>
+        <h3>New folder</h3>
+        <p class="sheet-note">Create a folder for organizing your library.</p>
+        <label class="folder-form">
+          <span>Name</span>
+          <input id="folderNameInput" value="${escapeHtml(sheet.name)}" maxlength="120" autocomplete="off" />
+        </label>
+        ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
+        <button class="primary-action" type="button" id="confirmFolder" ${sheet.name.trim() ? "" : "disabled"}>Create</button>
+      </section>
+    </div>
+  `;
+}
+
 function renderError(message: string): string {
   return `
     <div class="empty-state empty-state--library">
@@ -518,8 +561,12 @@ function renderError(message: string): string {
 
 function bindShellControls() {
   document.querySelector("#appThemeButton")?.addEventListener("click", toggleAppTheme);
-  document.querySelector("#homeNav")?.addEventListener("click", () => void loadHome());
+  document.querySelector("#homeNav")?.addEventListener("click", () => {
+    cleanupActiveReader(true);
+    void loadHome();
+  });
   document.querySelector("#libraryNav")?.addEventListener("click", () => {
+    cleanupActiveReader(true);
     selectedFolderId = "all";
     searchQuery = "";
     void loadBooks("all");
@@ -537,6 +584,16 @@ function bindShellControls() {
 function bindBookButtons() {
   document.querySelectorAll<HTMLElement>("[data-open]").forEach((button) => {
     button.addEventListener("click", () => openBookById(Number(button.dataset.open), button.textContent ?? ""));
+  });
+
+  document.querySelectorAll<HTMLElement>("[data-row-menu]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const book = findBook(Number(button.dataset.rowMenu));
+      if (!book) return;
+      activeSheet = { kind: "move", book, targetFolderId: book.folder_id };
+      render();
+    });
   });
 
   document.querySelectorAll<HTMLElement>(".book-row[data-book-id]").forEach((row) => {
@@ -621,9 +678,23 @@ function bindSheetControls() {
       render();
     }
   });
+  if (activeSheet.kind === "folder") {
+    const input = document.querySelector<HTMLInputElement>("#folderNameInput");
+    input?.focus();
+    input?.addEventListener("input", () => {
+      if (!activeSheet || activeSheet.kind !== "folder") return;
+      activeSheet = { ...activeSheet, name: input.value, error: null };
+      render();
+    });
+    document.querySelector("#confirmFolder")?.addEventListener("click", () => {
+      if (!activeSheet || activeSheet.kind !== "folder") return;
+      void submitFolder(activeSheet.name);
+    });
+    return;
+  }
   document.querySelectorAll<HTMLElement>("[data-sheet-folder]").forEach((button) => {
     button.addEventListener("click", () => {
-      if (!activeSheet) return;
+      if (!activeSheet || activeSheet.kind !== "move") return;
       const raw = button.dataset.sheetFolder!;
       activeSheet = { ...activeSheet, targetFolderId: raw === "inbox" ? null : Number(raw) };
       render();
@@ -631,7 +702,7 @@ function bindSheetControls() {
   });
   document.querySelector("#sheetNewFolder")?.addEventListener("click", () => void createFolder());
   document.querySelector("#confirmMove")?.addEventListener("click", () => {
-    if (!activeSheet) return;
+    if (!activeSheet || activeSheet.kind !== "move") return;
     void moveBookToFolder(activeSheet.book, activeSheet.targetFolderId);
   });
 }
@@ -645,6 +716,7 @@ function clearSearch() {
 function openBookById(id: number, sourceText: string) {
   const book = findBook(id);
   if (!book) return;
+  cleanupActiveReader(true);
   activeBook = book;
   if (sourceText.includes("Continue")) {
     void api<void>("/api/events", {
@@ -663,15 +735,22 @@ function findBook(id: number): Book | undefined {
 }
 
 function renderReader(book: Book) {
+  cleanupActiveReader(false);
   appEl.className = "reader";
   appEl.innerHTML = `
     <div class="reader-toolbar">
       <button class="secondary" id="backButton" type="button">${icon("arrowLeft")}<span>Back</span></button>
+      <button class="secondary" id="readerPrev" type="button">Previous</button>
+      <span class="reader-progress" id="readerProgress">Opening...</span>
+      <button class="secondary" id="readerNext" type="button">Next</button>
       <button class="secondary" id="readerThemeButton" type="button">Theme</button>
     </div>
     <div class="reader-stage" id="readerStage"></div>
   `;
-  document.querySelector("#backButton")?.addEventListener("click", () => void loadHome());
+  document.querySelector("#backButton")?.addEventListener("click", () => {
+    cleanupActiveReader(true);
+    void loadHome();
+  });
   document.querySelector("#readerThemeButton")?.addEventListener("click", toggleReaderTheme);
 
   if (book.too_large) {
@@ -692,7 +771,7 @@ async function renderTextBook(book: Book) {
   try {
     const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
     const file = await fetchBookFile(API_BASE, initData(), book);
-    await openFoliateReader(
+    const controller = await openFoliateReader(
       stage,
       file,
       pos?.locator ?? null,
@@ -701,7 +780,9 @@ async function renderTextBook(book: Book) {
       },
       undefined,
       book.format,
+      (status) => updateReaderControls(status.label, status.canGoPrevious, status.canGoNext),
     );
+    bindTextReaderControls(controller);
   } catch (error) {
     renderReaderError(stage, book, error);
   }
@@ -713,17 +794,57 @@ async function renderPdf(book: Book) {
   try {
     const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
     const file = await fetchBookFile(API_BASE, initData(), book);
-    const pdfReader = await openPdfReader(stage, file, pos?.locator ?? null, (position) => {
-      savePositionSafely(book.id, position.locator, position.percent);
-    });
+    let pdfReader: PdfReaderController | null = null;
+    pdfReader = await openPdfReader(
+      stage,
+      file,
+      pos?.locator ?? null,
+      (position) => {
+        savePositionSafely(book.id, position.locator, position.percent);
+      },
+      (label) =>
+        updateReaderControls(
+          label,
+          (pdfReader?.getPageNumber() ?? 1) > 1,
+          (pdfReader?.getPageNumber() ?? 1) < (pdfReader?.pageCount ?? 1),
+        ),
+    );
 
-    stage.addEventListener("click", (event) => {
-      const nextPage = pdfReader.getPageNumber() + ((event as MouseEvent).clientX > window.innerWidth / 2 ? 1 : -1);
-      void pdfReader.renderPage(nextPage);
-    });
+    bindPdfReaderControls(pdfReader);
   } catch (error) {
     renderReaderError(stage, book, error);
   }
+}
+
+function bindTextReaderControls(controller: TextReaderController) {
+  activeReaderSave = controller.saveNow;
+  activeReaderDestroy = controller.destroy;
+  document.querySelector("#readerPrev")?.addEventListener("click", () => void controller.previousSection());
+  document.querySelector("#readerNext")?.addEventListener("click", () => void controller.nextSection());
+}
+
+function bindPdfReaderControls(controller: PdfReaderController) {
+  activeReaderSave = null;
+  activeReaderDestroy = null;
+  updateReaderControls(`${controller.getPageNumber()} / ${controller.pageCount}`, controller.getPageNumber() > 1, controller.getPageNumber() < controller.pageCount);
+  document.querySelector("#readerPrev")?.addEventListener("click", () => void controller.previousPage());
+  document.querySelector("#readerNext")?.addEventListener("click", () => void controller.nextPage());
+}
+
+function updateReaderControls(label: string, canGoPrevious: boolean, canGoNext: boolean) {
+  const progress = document.querySelector<HTMLElement>("#readerProgress");
+  const previous = document.querySelector<HTMLButtonElement>("#readerPrev");
+  const next = document.querySelector<HTMLButtonElement>("#readerNext");
+  if (progress) progress.textContent = label;
+  if (previous) previous.disabled = !canGoPrevious;
+  if (next) next.disabled = !canGoNext;
+}
+
+function cleanupActiveReader(save: boolean) {
+  if (save) activeReaderSave?.();
+  activeReaderDestroy?.();
+  activeReaderSave = null;
+  activeReaderDestroy = null;
 }
 
 function renderReaderLoading(stage: HTMLElement) {
@@ -906,6 +1027,7 @@ function icon(name: string): string {
     alert: `<svg ${attrs}><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 4.4 2.8 17.4A2 2 0 0 0 4.5 20h15a2 2 0 0 0 1.7-2.6L13.7 4.4a2 2 0 0 0-3.4 0z"></path></svg>`,
     download: `<svg ${attrs}><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>`,
     plus: `<svg ${attrs} width="13" height="13"><path d="M12 5v14M5 12h14"></path></svg>`,
+    more: `<svg ${attrs}><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg>`,
   };
   return icons[name] ?? "";
 }

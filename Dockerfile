@@ -1,4 +1,4 @@
-FROM node:22-slim AS miniapp-build
+FROM node:22.12-slim AS miniapp-build
 
 WORKDIR /app/miniapp
 

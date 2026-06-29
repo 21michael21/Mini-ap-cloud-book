@@ -42,3 +42,10 @@ def test_validate_init_data_rejects_stale_auth_date() -> None:
 
     with pytest.raises(ValueError, match="stale"):
         validate_init_data(init_data, "token", max_age_seconds=60)
+
+
+def test_validate_init_data_rejects_future_auth_date() -> None:
+    init_data = signed_init_data("token", auth_date=int(time.time()) + 301)
+
+    with pytest.raises(ValueError, match="future"):
+        validate_init_data(init_data, "token", max_age_seconds=60)

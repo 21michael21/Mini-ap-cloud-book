@@ -10,14 +10,19 @@ FIXTURES = ROOT / "fixtures"
 
 def write_txt() -> None:
     (FIXTURES / "sample.txt").write_text(
-        "Harness TXT\n\nThis plain text document proves the TXT reader renders visible text.\n",
+        "Harness TXT\n\n"
+        + "\n\n".join(
+            f"Paragraph {index}. This plain text document proves the TXT reader restores scroll position."
+            for index in range(1, 80)
+        )
+        + "\n",
         encoding="utf-8",
     )
 
 
 def write_fb2() -> None:
     (FIXTURES / "sample.fb2").write_text(
-        """<?xml version="1.0" encoding="utf-8"?>
+        f"""<?xml version="1.0" encoding="utf-8"?>
 <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
   <description>
     <title-info>
@@ -30,6 +35,11 @@ def write_fb2() -> None:
     <section>
       <title><p>Harness FB2</p></title>
       <p>This FB2 document proves the FictionBook reader renders visible text.</p>
+      {''.join(f'<p>First section paragraph {index} for scroll restoration.</p>' for index in range(1, 40))}
+    </section>
+    <section>
+      <title><p>Harness FB2 Second Section</p></title>
+      {''.join(f'<p>Second section paragraph {index} for section restoration.</p>' for index in range(1, 40))}
     </section>
   </body>
 </FictionBook>
@@ -44,7 +54,7 @@ def write_epub() -> None:
         archive.writestr("mimetype", "application/epub+zip", compress_type=ZIP_STORED)
         archive.writestr(
             "META-INF/container.xml",
-            """<?xml version="1.0" encoding="UTF-8"?>
+            f"""<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
     <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
@@ -67,10 +77,12 @@ def write_epub() -> None:
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="chapter2" href="chapter2.xhtml" media-type="application/xhtml+xml"/>
     <item id="style" href="style.css" media-type="text/css"/>
   </manifest>
   <spine>
     <itemref idref="chapter"/>
+    <itemref idref="chapter2"/>
   </spine>
 </package>
 """,
@@ -97,6 +109,22 @@ def write_epub() -> None:
   <body>
     <h1>Harness EPUB</h1>
     <p>This EPUB document proves the EPUB reader renders visible text.</p>
+    {''.join(f'<p>First section paragraph {index} for scroll restoration.</p>' for index in range(1, 45))}
+  </body>
+</html>
+""",
+            compress_type=ZIP_DEFLATED,
+        )
+        archive.writestr(
+            "OEBPS/chapter2.xhtml",
+            f"""<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <title>Harness EPUB Second Section</title>
+  </head>
+  <body>
+    <h1>Harness EPUB Second Section</h1>
+    {''.join(f'<p>Second section paragraph {index} for section restoration.</p>' for index in range(1, 45))}
   </body>
 </html>
 """,

@@ -20,6 +20,11 @@ for (const file of files) {
   const source = readFileSync(file.path, "utf8");
   const replacementCount = source.split(unsafeSandbox).length - 1;
   if (replacementCount < 1) {
+    const safeCount = source.split(safeSandbox).length - 1;
+    if (safeCount > 0 && !source.includes("allow-scripts")) {
+      console.log(`foliate-js ${file.label} sandbox already patched`);
+      continue;
+    }
     throw new Error(
       `foliate-js sandbox patch failed for ${file.label}: expected to replace ${unsafeSandbox} at least once`,
     );

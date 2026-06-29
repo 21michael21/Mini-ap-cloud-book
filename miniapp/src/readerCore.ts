@@ -6,6 +6,47 @@ export type Position = {
   percent: number;
 };
 
+export type TextLocator = {
+  type: "text";
+  sectionIndex: number;
+  scrollRatio: number;
+};
+
+export type TxtLocator = {
+  type: "txt";
+  scrollRatio: number;
+};
+
+export type PdfLocator = {
+  type: "pdf";
+  page: number;
+};
+
+export type TextReaderStatus = {
+  canGoPrevious: boolean;
+  canGoNext: boolean;
+  label: string;
+};
+
+export type TextReaderController = {
+  previousSection: () => Promise<void>;
+  nextSection: () => Promise<void>;
+  saveNow: () => void;
+  destroy: () => void;
+  getSectionIndex: () => number;
+  getScrollRatio: () => number;
+  getSectionCount: () => number;
+};
+
+export type PdfReaderController = {
+  getPageNumber: () => number;
+  pageCount: number;
+  canvas: HTMLCanvasElement;
+  renderPage: (page: number) => Promise<void>;
+  previousPage: () => Promise<void>;
+  nextPage: () => Promise<void>;
+};
+
 export class BookFileError extends Error {
   constructor(
     public readonly status: number,
@@ -71,50 +112,89 @@ export async function openFoliateReader(
   onPosition: (position: Position) => void,
   onVisibleText?: (text: string) => void,
   format?: string,
-): Promise<HTMLIFrameElement> {
+  onStatus?: (status: TextReaderStatus) => void,
+): Promise<TextReaderController> {
   const normalizedFormat = format?.toLowerCase();
-  const book = normalizedFormat === "txt" || file.name.toLowerCase().endsWith(".txt")
-    ? await makePlainTextBook(file)
-    : await makeFoliateBook(file, normalizedFormat);
-  const section = selectSection(book, restoreLocator);
-  const { src, srcdoc, text } = await makeSafeSectionUrl(section);
-  const iframe = document.createElement("iframe");
-  iframe.className = "book-frame";
-  iframe.setAttribute("sandbox", "allow-same-origin");
-  iframe.setAttribute("title", file.name);
-  container.replaceChildren(iframe);
-  await new Promise<void>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error("Timed out loading book iframe")), 7000);
-    const poll = window.setInterval(() => {
-      const bodyText = iframe.contentDocument?.body?.innerText?.trim();
-      if (bodyText) {
-        window.clearInterval(poll);
-        window.clearTimeout(timeout);
-        resolve();
-      }
-    }, 100);
-    iframe.addEventListener(
-      "load",
-      () => {
-        window.clearInterval(poll);
-        window.clearTimeout(timeout);
-        resolve();
-      },
-      { once: true },
-    );
-    if (srcdoc) {
-      iframe.srcdoc = srcdoc;
-    } else if (src) {
-      iframe.src = src;
-    } else {
-      reject(new Error("Book section has no renderable source"));
-    }
-  });
-  const renderedText = iframe.contentDocument?.body?.innerText?.trim() || text;
-  if (!renderedText) throw new Error("This document opened, but no readable text was found.");
-  if (renderedText) onVisibleText?.(renderedText);
-  onPosition({ locator: normalizeCfi(section.cfi ?? restoreLocator), percent: restoreLocator ? 25 : 0 });
-  return iframe;
+  const isTxt = normalizedFormat === "txt" || file.name.toLowerCase().endsWith(".txt");
+  const book = isTxt ? await makePlainTextBook(file) : await makeFoliateBook(file, normalizedFormat);
+  const sections = book.sections.filter((section) => section.load);
+  if (!sections.length) throw new Error("Book has no renderable sections");
+
+  const restoredText = isTxt ? null : parseTextLocator(restoreLocator, sections.length);
+  const restoredTxt = isTxt ? parseTxtLocator(restoreLocator) : null;
+  let sectionIndex = restoredText?.sectionIndex ?? 0;
+  let scrollRatio = restoredTxt?.scrollRatio ?? restoredText?.scrollRatio ?? 0;
+  let iframe: HTMLIFrameElement | null = null;
+  let scrollTimer = 0;
+  let destroyed = false;
+
+  const save = () => {
+    if (destroyed) return;
+    const currentRatio = getIframeScrollRatio(iframe);
+    scrollRatio = currentRatio;
+    const percent = isTxt
+      ? clamp(currentRatio * 100, 0, 100)
+      : clamp(((sectionIndex + currentRatio) / sections.length) * 100, 0, 100);
+    const locator = isTxt
+      ? JSON.stringify({ type: "txt", scrollRatio: currentRatio } satisfies TxtLocator)
+      : JSON.stringify({ type: "text", sectionIndex, scrollRatio: currentRatio } satisfies TextLocator);
+    onPosition({ locator, percent });
+    emitStatus();
+  };
+
+  const debouncedSave = () => {
+    window.clearTimeout(scrollTimer);
+    scrollTimer = window.setTimeout(save, 250);
+  };
+
+  const emitStatus = () => {
+    const currentRatio = getIframeScrollRatio(iframe);
+    const percent = isTxt
+      ? clamp(currentRatio * 100, 0, 100)
+      : clamp(((sectionIndex + currentRatio) / sections.length) * 100, 0, 100);
+    onStatus?.({
+      canGoPrevious: !isTxt && sectionIndex > 0,
+      canGoNext: !isTxt && sectionIndex < sections.length - 1,
+      label: isTxt ? `${Math.round(percent)}%` : `Section ${sectionIndex + 1}/${sections.length} · ${Math.round(percent)}%`,
+    });
+  };
+
+  const renderSection = async (nextIndex: number, nextScrollRatio: number, shouldSave: boolean) => {
+    window.clearTimeout(scrollTimer);
+    sectionIndex = clamp(Math.round(nextIndex), 0, sections.length - 1);
+    scrollRatio = clamp(nextScrollRatio, 0, 1);
+    iframe = await renderSectionIframe(container, file.name, sections[sectionIndex], scrollRatio, debouncedSave);
+    const renderedText = iframe.contentDocument?.body?.innerText?.trim();
+    if (!renderedText) throw new Error("This document opened, but no readable text was found.");
+    onVisibleText?.(renderedText);
+    emitStatus();
+    if (shouldSave) save();
+  };
+
+  await renderSection(sectionIndex, scrollRatio, false);
+
+  const beforeUnload = () => save();
+  window.addEventListener("beforeunload", beforeUnload);
+
+  return {
+    previousSection: async () => {
+      if (sectionIndex <= 0) return;
+      await renderSection(sectionIndex - 1, 0, true);
+    },
+    nextSection: async () => {
+      if (sectionIndex >= sections.length - 1) return;
+      await renderSection(sectionIndex + 1, 0, true);
+    },
+    saveNow: save,
+    destroy: () => {
+      destroyed = true;
+      window.clearTimeout(scrollTimer);
+      window.removeEventListener("beforeunload", beforeUnload);
+    },
+    getSectionIndex: () => sectionIndex,
+    getScrollRatio: () => getIframeScrollRatio(iframe),
+    getSectionCount: () => sections.length,
+  };
 }
 
 export async function openPdfReader(
@@ -122,20 +202,24 @@ export async function openPdfReader(
   file: File,
   restoreLocator: string | null,
   onPosition: (position: Position) => void,
+  onStatus?: (label: string) => void,
 ): Promise<{
   getPageNumber: () => number;
   pageCount: number;
   canvas: HTMLCanvasElement;
   renderPage: (page: number) => Promise<void>;
+  previousPage: () => Promise<void>;
+  nextPage: () => Promise<void>;
 }> {
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjs.getDocument({ data: buffer }).promise;
   const canvas = document.createElement("canvas");
   canvas.className = "pdf-canvas";
   container.replaceChildren(canvas);
-  let pageNumber = Math.min(Math.max(Number(restoreLocator ?? 1), 1), pdf.numPages);
+  let pageNumber = parsePdfPage(restoreLocator, pdf.numPages);
+  let renderQueue = Promise.resolve();
 
-  const renderPage = async (page: number) => {
+  const renderPageNow = async (page: number) => {
     pageNumber = Math.min(Math.max(page, 1), pdf.numPages);
     const pdfPage = await pdf.getPage(pageNumber);
     const baseViewport = pdfPage.getViewport({ scale: 1 });
@@ -146,10 +230,23 @@ export async function openPdfReader(
     canvas.height = viewport.height;
     await pdfPage.render({ canvas, canvasContext: context, viewport }).promise;
     onPosition({ locator: String(pageNumber), percent: (pageNumber / pdf.numPages) * 100 });
+    onStatus?.(`${pageNumber} / ${pdf.numPages}`);
+  };
+
+  const renderPage = async (page: number) => {
+    renderQueue = renderQueue.catch(() => undefined).then(() => renderPageNow(page));
+    await renderQueue;
   };
 
   await renderPage(pageNumber);
-  return { getPageNumber: () => pageNumber, pageCount: pdf.numPages, canvas, renderPage };
+  return {
+    getPageNumber: () => pageNumber,
+    pageCount: pdf.numPages,
+    canvas,
+    renderPage,
+    previousPage: () => renderPage(pageNumber - 1),
+    nextPage: () => renderPage(pageNumber + 1),
+  };
 }
 
 async function makePlainTextBook(file: File): Promise<PlainTextBook> {
@@ -217,25 +314,102 @@ async function makeZipLoader(file: File): Promise<ZipLoader> {
   };
 }
 
+type RenderableSection = FoliateBook["sections"][number];
+
 type ZipEntry = {
   filename: string;
   uncompressedSize: number;
   getData: <T>(writer: unknown) => Promise<T>;
 };
 
-function selectSection(book: FoliateBook, restoreLocator: string | null) {
-  if (restoreLocator) {
-    const match = book.sections.find((section) => normalizeCfi(section.cfi) === restoreLocator);
-    if (match) return match;
+export function parseTextLocator(locator: string | null | undefined, sectionCount: number): TextLocator {
+  const fallback: TextLocator = { type: "text", sectionIndex: 0, scrollRatio: 0 };
+  if (!locator || locator.startsWith("epubcfi(")) return fallback;
+  try {
+    const parsed = JSON.parse(locator) as Partial<TextLocator>;
+    if (parsed.type !== "text") return fallback;
+    return {
+      type: "text",
+      sectionIndex: clampNumber(parsed.sectionIndex, 0, Math.max(sectionCount - 1, 0), 0),
+      scrollRatio: clampNumber(parsed.scrollRatio, 0, 1, 0),
+    };
+  } catch {
+    return fallback;
   }
-  const firstLinear = book.sections.find((section) => section.load);
-  if (!firstLinear) throw new Error("Book has no renderable sections");
-  return firstLinear;
 }
 
-function normalizeCfi(locator: string | null | undefined): string {
-  if (!locator) return "epubcfi(/2/1)";
-  return locator.startsWith("epubcfi(") ? locator : `epubcfi(${locator})`;
+export function parseTxtLocator(locator: string | null | undefined): TxtLocator {
+  const fallback: TxtLocator = { type: "txt", scrollRatio: 0 };
+  if (!locator || locator.startsWith("epubcfi(")) return fallback;
+  try {
+    const parsed = JSON.parse(locator) as Partial<TxtLocator>;
+    if (parsed.type !== "txt") return fallback;
+    return {
+      type: "txt",
+      scrollRatio: clampNumber(parsed.scrollRatio, 0, 1, 0),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+export function parsePdfPage(locator: string | null | undefined, pageCount: number): number {
+  if (!locator) return 1;
+  try {
+    const parsed = JSON.parse(locator) as Partial<PdfLocator>;
+    if (parsed.type === "pdf") {
+      return clampNumber(parsed.page, 1, pageCount, 1);
+    }
+  } catch {
+    // Legacy PDF locators are plain page strings.
+  }
+  return clampNumber(Number(locator), 1, pageCount, 1);
+}
+
+export function textPositionPercent(sectionIndex: number, scrollRatio: number, sectionCount: number): number {
+  return clamp(((clamp(sectionIndex, 0, Math.max(sectionCount - 1, 0)) + clamp(scrollRatio, 0, 1)) / sectionCount) * 100, 0, 100);
+}
+
+export function txtPositionPercent(scrollRatio: number): number {
+  return clamp(scrollRatio, 0, 1) * 100;
+}
+
+async function renderSectionIframe(
+  container: HTMLElement,
+  title: string,
+  section: RenderableSection,
+  restoreScrollRatio: number,
+  onScroll: () => void,
+): Promise<HTMLIFrameElement> {
+  const { src, srcdoc } = await makeSafeSectionUrl(section);
+  const iframe = document.createElement("iframe");
+  iframe.className = "book-frame";
+  iframe.setAttribute("sandbox", "allow-same-origin");
+  iframe.setAttribute("title", title);
+  container.replaceChildren(iframe);
+  await new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error("Timed out loading book iframe")), 7000);
+    iframe.addEventListener(
+      "load",
+      () => {
+        window.clearTimeout(timeout);
+        resolve();
+      },
+      { once: true },
+    );
+    if (srcdoc) {
+      iframe.srcdoc = srcdoc;
+    } else if (src) {
+      iframe.src = src;
+    } else {
+      window.clearTimeout(timeout);
+      reject(new Error("Book section has no renderable source"));
+    }
+  });
+  await new Promise((resolve) => window.requestAnimationFrame(resolve));
+  setIframeScrollRatio(iframe, restoreScrollRatio);
+  iframe.contentWindow?.addEventListener("scroll", onScroll, { passive: true });
+  return iframe;
 }
 
 async function makeSafeSectionUrl(
@@ -280,4 +454,32 @@ function escapeHtml(value: string): string {
     };
     return map[char];
   });
+}
+
+function getIframeScroller(iframe: HTMLIFrameElement | null): Element | null {
+  const doc = iframe?.contentDocument;
+  return doc?.scrollingElement ?? doc?.documentElement ?? doc?.body ?? null;
+}
+
+function getIframeScrollRatio(iframe: HTMLIFrameElement | null): number {
+  const scroller = getIframeScroller(iframe);
+  if (!scroller) return 0;
+  const maxScroll = Math.max(scroller.scrollHeight - scroller.clientHeight, 0);
+  if (maxScroll <= 0) return 0;
+  return clamp(scroller.scrollTop / maxScroll, 0, 1);
+}
+
+function setIframeScrollRatio(iframe: HTMLIFrameElement, ratio: number): void {
+  const scroller = getIframeScroller(iframe);
+  if (!scroller) return;
+  const maxScroll = Math.max(scroller.scrollHeight - scroller.clientHeight, 0);
+  scroller.scrollTop = clamp(ratio, 0, 1) * maxScroll;
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? clamp(value, min, max) : fallback;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
