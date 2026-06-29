@@ -1170,6 +1170,25 @@ body.reader-light .reader {
   padding-top: 72px;
 }
 
+.reader-loading,
+.reader-error {
+  min-height: calc(100vh - 72px);
+  padding: 28px 20px;
+}
+
+.reader-loading {
+  display: grid;
+  place-items: center;
+  gap: 14px;
+  color: var(--muted);
+}
+
+.skel-reader {
+  width: min(72vw, 360px);
+  height: 58vh;
+  border-radius: var(--radius);
+}
+
 foliate-view {
   display: block;
   width: 100%;

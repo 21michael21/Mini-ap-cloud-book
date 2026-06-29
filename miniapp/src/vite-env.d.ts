@@ -11,6 +11,7 @@ interface Window {
       initData: string;
       ready: () => void;
       expand: () => void;
+      close?: () => void;
       colorScheme?: "light" | "dark";
     };
   };

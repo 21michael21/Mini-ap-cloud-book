@@ -14,6 +14,7 @@ from backend.app.models import Book, ReadingPosition, User
 SAMPLES = {
     "fb2": Path("dev/fixtures/sample.fb2"),
     "txt": Path("dev/fixtures/sample.txt"),
+    "pdf": Path("dev/fixtures/sample.pdf"),
 }
 
 
@@ -59,3 +60,45 @@ def test_text_reader_locator_restores_exact_value_after_reload(fmt: str, locator
 
     assert restored is not None
     assert restored.locator == locator
+
+
+def test_pdf_reader_page_number_restores_exact_value_after_reload() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    sample = SAMPLES["pdf"]
+
+    with Session(engine) as db:
+        user = User(tg_user_id=9001)
+        db.add(user)
+        db.flush()
+        book = Book(
+            user_id=user.id,
+            tg_file_id="sample-pdf",
+            tg_file_unique_id="sample-pdf",
+            file_name=sample.name,
+            mime_type="application/pdf",
+            title="Sample PDF",
+            author=None,
+            format="pdf",
+            cover_ref=None,
+            size_bytes=sample.stat().st_size,
+            too_large=False,
+            folder_id=None,
+        )
+        db.add(book)
+        db.flush()
+        db.add(ReadingPosition(book_id=book.id, user_id=user.id, locator="2", percent=50.0))
+        db.commit()
+        book_id = book.id
+        user_id = user.id
+
+    with Session(engine) as reloaded:
+        restored = reloaded.scalar(
+            select(ReadingPosition).where(
+                ReadingPosition.book_id == book_id,
+                ReadingPosition.user_id == user_id,
+            )
+        )
+
+    assert restored is not None
+    assert restored.locator == "2"

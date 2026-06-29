@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from pathlib import Path
 
 import httpx
@@ -9,6 +11,9 @@ from sqlalchemy.orm import Session
 
 from backend.app.config import Settings
 from backend.app.models import Book, Event, Folder, User
+
+
+logger = logging.getLogger(__name__)
 
 
 def log_event(
@@ -47,23 +52,72 @@ async def ensure_cached_file(settings: Settings, book: Book) -> Path:
             detail="This file is larger than the Telegram Bot API download limit.",
         )
 
+    cleanup_file_cache(settings)
     path = cache_path(settings, book)
     if path.exists():
+        path.touch()
         return path
 
     settings.file_cache_dir.mkdir(parents=True, exist_ok=True)
-    async with httpx.AsyncClient(timeout=60) as client:
-        file_resp = await client.get(
-            f"https://api.telegram.org/bot{settings.bot_token}/getFile",
-            params={"file_id": book.tg_file_id},
-        )
-        file_resp.raise_for_status()
-        payload = file_resp.json()
-        if not payload.get("ok"):
-            raise HTTPException(status_code=502, detail="Telegram getFile failed")
-        file_path = payload["result"]["file_path"]
-        download_url = f"https://api.telegram.org/file/bot{settings.bot_token}/{file_path}"
-        download_resp = await client.get(download_url)
-        download_resp.raise_for_status()
-        path.write_bytes(download_resp.content)
+    tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            file_resp = await client.get(
+                f"https://api.telegram.org/bot{settings.bot_token}/getFile",
+                params={"file_id": book.tg_file_id},
+            )
+            file_resp.raise_for_status()
+            payload = file_resp.json()
+            if not payload.get("ok"):
+                raise HTTPException(status_code=502, detail="Telegram getFile failed")
+            file_path = payload["result"]["file_path"]
+            download_url = f"https://api.telegram.org/file/bot{settings.bot_token}/{file_path}"
+            download_resp = await client.get(download_url)
+            download_resp.raise_for_status()
+            tmp_path.write_bytes(download_resp.content)
+            tmp_path.replace(path)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        tmp_path.unlink(missing_ok=True)
+        logger.exception("Telegram file download failed for book_id=%s", book.id)
+        raise HTTPException(status_code=502, detail="Could not download this file from Telegram.") from exc
+    cleanup_file_cache(settings)
     return path
+
+
+def cleanup_file_cache(settings: Settings) -> None:
+    cache_dir = settings.file_cache_dir
+    if not cache_dir.exists():
+        return
+
+    now = time.time()
+    files: list[tuple[float, int, Path]] = []
+    for path in cache_dir.iterdir():
+        if not path.is_file() or path.name.endswith(".tmp"):
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            logger.exception("Could not stat cache file %s", path)
+            continue
+        if settings.file_cache_max_age_seconds > 0 and now - stat.st_mtime > settings.file_cache_max_age_seconds:
+            try:
+                path.unlink()
+            except OSError:
+                logger.exception("Could not remove expired cache file %s", path)
+            continue
+        files.append((stat.st_mtime, stat.st_size, path))
+
+    max_bytes = settings.file_cache_max_bytes
+    if max_bytes <= 0:
+        return
+    total = sum(size for _, size, _ in files)
+    for _, size, path in sorted(files):
+        if total <= max_bytes:
+            break
+        try:
+            path.unlink()
+            total -= size
+        except OSError:
+            logger.exception("Could not remove cache file %s during LRU cleanup", path)

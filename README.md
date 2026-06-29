@@ -35,6 +35,8 @@ BOT_TOKEN=replace-me
 DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/telegram_library
 WEBAPP_URL=https://your-miniapp.example.com
 FILE_CACHE_DIR=./file_cache
+FILE_CACHE_MAX_BYTES=536870912
+FILE_CACHE_MAX_AGE_SECONDS=1209600
 INITDATA_MAX_AGE_SECONDS=86400
 MAX_TELEGRAM_DOWNLOAD_BYTES=20971520
 ```
@@ -85,6 +87,8 @@ DATABASE_URL=Railway Postgres connection URL
 WEBAPP_URL=https://your-backend.up.railway.app
 BACKEND_PUBLIC_URL=https://your-backend.up.railway.app
 FILE_CACHE_DIR=/data/file_cache
+FILE_CACHE_MAX_BYTES=536870912
+FILE_CACHE_MAX_AGE_SECONDS=1209600
 INITDATA_MAX_AGE_SECONDS=86400
 MAX_TELEGRAM_DOWNLOAD_BYTES=20971520
 ```
@@ -180,7 +184,7 @@ Run this in the real Telegram mobile client after deploy:
 5. Send a small PDF file and open it from the Mini App.
    Expected: PDF page 1 renders; tapping the right side advances pages; closing and reopening restores the saved page number.
 6. Send a file larger than `MAX_TELEGRAM_DOWNLOAD_BYTES` (20 MB by default).
-   Expected: the file appears in the library as a `too_large` record with a `Download original` action; the Mini App does not call the in-app reader for it and tells the user to use the original Telegram message for download.
+   Expected: the file appears in the library as a `too_large` record with a `Download original` action; the Mini App does not expose a bot token or raw Telegram file URL. It sends you back to Telegram, where the original file message in the bot chat is the download source.
 
 If any Mini App request fails, check that `WEBAPP_URL` and `BACKEND_PUBLIC_URL` point to the same deployed HTTPS backend URL and that the bot service was restarted after env changes.
 
@@ -221,6 +225,9 @@ default-src 'self'; script-src 'self' https://telegram.org; style-src 'self'; im
 `BACKEND_PUBLIC_URL`; wildcard origins are intentionally not used.
 
 Book HTML is sanitized before rendering and placed in sandboxed iframes with `sandbox="allow-same-origin"` and no `allow-scripts`.
+
+The backend file cache is bounded by `FILE_CACHE_MAX_BYTES` and `FILE_CACHE_MAX_AGE_SECONDS`.
+Cleanup runs around file fetches and removes expired files first, then least-recently-used files until the cache is under the size cap.
 
 Completion requires the local and remote hashes to match:
 

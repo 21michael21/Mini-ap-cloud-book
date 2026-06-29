@@ -1,4 +1,4 @@
-import { apiHeaders, fetchBookFile, openFoliateReader, openPdfReader } from "./readerCore";
+import { BookFileError, apiHeaders, fetchBookFile, openFoliateReader, openPdfReader } from "./readerCore";
 import "./styles.css";
 
 type Book = {
@@ -30,6 +30,16 @@ type View = "home" | "library" | "reader";
 type LibraryScope = "inbox" | "all" | number;
 type SheetState = { kind: "move"; book: Book; targetFolderId: number | null } | null;
 type AppTheme = "day" | "night";
+
+class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? window.location.origin;
 const appEl = document.querySelector<HTMLDivElement>("#app")!;
@@ -77,7 +87,7 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     },
   });
   if (!response.ok) {
-    throw new Error(await response.text());
+    throw new ApiError(response.status, await responseMessage(response));
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -665,12 +675,7 @@ function renderReader(book: Book) {
   document.querySelector("#readerThemeButton")?.addEventListener("click", toggleReaderTheme);
 
   if (book.too_large) {
-    document.querySelector("#readerStage")!.innerHTML =
-      `<div class="empty-state empty-state--library"><div class="empty-icon">${icon("download")}</div><h2>Download original</h2><p>This file is over 20 MB. Use the original Telegram message to download it.</p></div>`;
-    void api<void>("/api/events", {
-      method: "POST",
-      body: JSON.stringify({ type: "too_large_file_opened", book_id: book.id }),
-    });
+    renderDownloadOriginal(document.querySelector<HTMLElement>("#readerStage")!, book);
     return;
   }
 
@@ -683,31 +688,113 @@ function renderReader(book: Book) {
 
 async function renderTextBook(book: Book) {
   const stage = document.querySelector<HTMLElement>("#readerStage")!;
-  const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
-  const file = await fetchBookFile(API_BASE, initData(), book);
-  await openFoliateReader(stage, file, pos?.locator ?? null, (position) => {
-    void savePosition(book.id, position.locator, position.percent);
-  });
+  renderReaderLoading(stage);
+  try {
+    const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
+    const file = await fetchBookFile(API_BASE, initData(), book);
+    await openFoliateReader(
+      stage,
+      file,
+      pos?.locator ?? null,
+      (position) => {
+        savePositionSafely(book.id, position.locator, position.percent);
+      },
+      undefined,
+      book.format,
+    );
+  } catch (error) {
+    renderReaderError(stage, book, error);
+  }
 }
 
 async function renderPdf(book: Book) {
   const stage = document.querySelector<HTMLElement>("#readerStage")!;
-  const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
-  const file = await fetchBookFile(API_BASE, initData(), book);
-  const pdfReader = await openPdfReader(stage, file, pos?.locator ?? null, (position) => {
-    void savePosition(book.id, position.locator, position.percent);
-  });
+  renderReaderLoading(stage);
+  try {
+    const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
+    const file = await fetchBookFile(API_BASE, initData(), book);
+    const pdfReader = await openPdfReader(stage, file, pos?.locator ?? null, (position) => {
+      savePositionSafely(book.id, position.locator, position.percent);
+    });
 
-  stage.addEventListener("click", (event) => {
-    const nextPage = pdfReader.getPageNumber() + ((event as MouseEvent).clientX > window.innerWidth / 2 ? 1 : -1);
-    void pdfReader.renderPage(nextPage);
+    stage.addEventListener("click", (event) => {
+      const nextPage = pdfReader.getPageNumber() + ((event as MouseEvent).clientX > window.innerWidth / 2 ? 1 : -1);
+      void pdfReader.renderPage(nextPage);
+    });
+  } catch (error) {
+    renderReaderError(stage, book, error);
+  }
+}
+
+function renderReaderLoading(stage: HTMLElement) {
+  stage.innerHTML = `<div class="reader-loading"><div class="skel skel-reader"></div><p>Opening document...</p></div>`;
+}
+
+function renderReaderError(stage: HTMLElement, book: Book, error: unknown) {
+  if (error instanceof BookFileError && error.status === 413) {
+    renderDownloadOriginal(stage, book);
+    return;
+  }
+
+  const { title, message } = readerErrorCopy(error);
+  stage.innerHTML = `
+    <div class="empty-state empty-state--library reader-error">
+      <div class="empty-icon">${icon("alert")}</div>
+      <h2>${escapeHtml(title)}</h2>
+      <p>${escapeHtml(message)}</p>
+      <button class="ghost-button" type="button" id="readerRetry">Retry</button>
+    </div>
+  `;
+  document.querySelector("#readerRetry")?.addEventListener("click", () => {
+    if (book.format === "pdf") void renderPdf(book);
+    else void renderTextBook(book);
   });
+}
+
+function renderDownloadOriginal(stage: HTMLElement, book: Book) {
+  stage.innerHTML = `
+    <div class="empty-state empty-state--library reader-error">
+      <div class="empty-icon">${icon("download")}</div>
+      <h2>Download original</h2>
+      <p>This file is too large to open in the Mini App. Return to the bot chat and use the original Telegram file message to download it.</p>
+      <button class="ghost-button" type="button" id="closeMiniApp">Back to Telegram</button>
+    </div>
+  `;
+  void api<void>("/api/events", {
+    method: "POST",
+    body: JSON.stringify({ type: "too_large_file_opened", book_id: book.id }),
+  }).catch((error) => console.warn("Could not log too-large event", error));
+  document.querySelector("#closeMiniApp")?.addEventListener("click", () => {
+    tg?.close?.();
+  });
+}
+
+function readerErrorCopy(error: unknown): { title: string; message: string } {
+  if (error instanceof ApiError && error.status === 401) {
+    return { title: "Session expired", message: "Close and reopen the Mini App from Telegram to refresh access." };
+  }
+  if ((error instanceof ApiError || error instanceof BookFileError) && error.status === 404) {
+    return { title: "File not found", message: "This book is no longer available in your library." };
+  }
+  if (error instanceof BookFileError && error.status === 422) {
+    return { title: "Empty file", message: error.message };
+  }
+  if (error instanceof TypeError) {
+    return { title: "Network problem", message: "Check your connection and try again." };
+  }
+  return { title: "Could not open document", message: readableError(error) };
 }
 
 async function savePosition(bookId: number, locator: string, percent: number) {
   await api(`/api/books/${bookId}/position`, {
     method: "PUT",
     body: JSON.stringify({ locator, percent }),
+  });
+}
+
+function savePositionSafely(bookId: number, locator: string, percent: number) {
+  void savePosition(bookId, locator, percent).catch((error) => {
+    console.warn("Could not save reading position", error);
   });
 }
 
@@ -779,8 +866,23 @@ function shortAuthor(book: Book): string {
 }
 
 function readableError(error: unknown): string {
+  if (error instanceof ApiError && error.status === 401) return "Telegram session expired. Reopen the Mini App from the bot.";
+  if (error instanceof ApiError && error.status === 404) return "This item was not found.";
+  if (error instanceof TypeError) return "Network problem. Check your connection and try again.";
   if (error instanceof Error) return error.message;
   return "Unknown error";
+}
+
+async function responseMessage(response: Response): Promise<string> {
+  const text = await response.text();
+  if (!text) return `Request failed with HTTP ${response.status}`;
+  try {
+    const parsed = JSON.parse(text) as { detail?: unknown };
+    if (typeof parsed.detail === "string") return parsed.detail;
+  } catch {
+    return text;
+  }
+  return text;
 }
 
 function clamp(value: number, min: number, max: number): number {

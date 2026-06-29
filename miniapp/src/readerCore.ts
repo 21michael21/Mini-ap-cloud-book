@@ -6,6 +6,16 @@ export type Position = {
   percent: number;
 };
 
+export class BookFileError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "BookFileError";
+  }
+}
+
 type PlainTextBook = {
   metadata: { title: string; language: string };
   dir: "ltr";
@@ -48,8 +58,9 @@ export async function fetchBookFile(
   const response = await fetch(`${apiBase}/api/books/${book.id}/file`, {
     headers: apiHeaders(initData),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new BookFileError(response.status, await responseMessage(response));
   const blob = await response.blob();
+  if (blob.size === 0) throw new BookFileError(422, "This file is empty and cannot be opened.");
   return new File([blob], book.file_name, { type: blob.type });
 }
 
@@ -59,10 +70,12 @@ export async function openFoliateReader(
   restoreLocator: string | null,
   onPosition: (position: Position) => void,
   onVisibleText?: (text: string) => void,
+  format?: string,
 ): Promise<HTMLIFrameElement> {
-  const book = file.name.toLowerCase().endsWith(".txt")
+  const normalizedFormat = format?.toLowerCase();
+  const book = normalizedFormat === "txt" || file.name.toLowerCase().endsWith(".txt")
     ? await makePlainTextBook(file)
-    : await makeFoliateBook(file);
+    : await makeFoliateBook(file, normalizedFormat);
   const section = selectSection(book, restoreLocator);
   const { src, srcdoc, text } = await makeSafeSectionUrl(section);
   const iframe = document.createElement("iframe");
@@ -98,6 +111,7 @@ export async function openFoliateReader(
     }
   });
   const renderedText = iframe.contentDocument?.body?.innerText?.trim() || text;
+  if (!renderedText) throw new Error("This document opened, but no readable text was found.");
   if (renderedText) onVisibleText?.(renderedText);
   onPosition({ locator: normalizeCfi(section.cfi ?? restoreLocator), percent: restoreLocator ? 25 : 0 });
   return iframe;
@@ -163,8 +177,8 @@ async function makePlainTextBook(file: File): Promise<PlainTextBook> {
   };
 }
 
-async function makeFoliateBook(file: File): Promise<FoliateBook> {
-  if (file.name.toLowerCase().endsWith(".fb2")) {
+async function makeFoliateBook(file: File, format?: string): Promise<FoliateBook> {
+  if (format === "fb2" || file.name.toLowerCase().endsWith(".fb2")) {
     const module = (await import("foliate-js/fb2.js")) as { makeFB2: (file: File) => Promise<FoliateBook> };
     return module.makeFB2(file);
   }
@@ -241,6 +255,18 @@ async function makeSafeSectionUrl(
     srcdoc: html,
     text,
   };
+}
+
+async function responseMessage(response: Response): Promise<string> {
+  const text = await response.text();
+  if (!text) return `Request failed with HTTP ${response.status}`;
+  try {
+    const parsed = JSON.parse(text) as { detail?: unknown };
+    if (typeof parsed.detail === "string") return parsed.detail;
+  } catch {
+    return text;
+  }
+  return text;
 }
 
 function escapeHtml(value: string): string {

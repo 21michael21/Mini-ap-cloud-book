@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     webapp_url: str = "http://localhost:5173"
     backend_public_url: str = "http://localhost:8000"
     file_cache_dir: Path = Path("./file_cache")
+    file_cache_max_bytes: int = 512 * 1024 * 1024
+    file_cache_max_age_seconds: int = 60 * 60 * 24 * 14
     initdata_max_age_seconds: int = 60 * 60 * 24
     max_telegram_download_bytes: int = 20 * 1024 * 1024
 
