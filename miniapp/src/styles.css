@@ -1467,8 +1467,10 @@ body:not(.reader-light) .reader {
   left: 10px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
   padding: 7px;
   border: 1px solid var(--button-border);
   border-radius: 13px;
@@ -1477,6 +1479,12 @@ body:not(.reader-light) .reader {
   transition:
     opacity 180ms ease,
     transform 180ms ease;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.reader-toolbar::-webkit-scrollbar {
+  display: none;
 }
 
 .reader-toolbar.is-hidden {
@@ -1486,6 +1494,7 @@ body:not(.reader-light) .reader {
 }
 
 .secondary {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1507,8 +1516,8 @@ body:not(.reader-light) .reader {
 }
 
 .reader-progress {
-  flex: 1;
-  min-width: 56px;
+  flex: 0 0 auto;
+  min-width: 64px;
   color: var(--button-muted-text);
   font-size: 12px;
   line-height: 1.15;

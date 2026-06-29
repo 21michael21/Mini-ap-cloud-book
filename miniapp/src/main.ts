@@ -101,6 +101,9 @@ let toastTimer = 0;
 let pendingAction: PendingAction = null;
 let positionSaveErrorShown = false;
 
+const PDF_MIN_ZOOM = 0.75;
+const PDF_MAX_ZOOM = 3;
+
 function init() {
   tg?.ready?.();
   tg?.expand?.();
@@ -1549,7 +1552,7 @@ function readerErrorCopy(error: unknown): { title: string; message: string } {
     return { title: "Network problem", message: "Check your connection and try again." };
   }
   if (activeBook?.format === "pdf") {
-    return { title: "Could not render this PDF", message: readableError(error) };
+    return { title: "Could not render this PDF", message: "Try again or return to your library." };
   }
   return { title: "Could not open document", message: readableError(error) };
 }
@@ -1626,12 +1629,12 @@ function readReaderFontSize(): number {
 function updatePdfZoomButtons(zoom: number) {
   const down = document.querySelector<HTMLButtonElement>("#readerZoomOut");
   const up = document.querySelector<HTMLButtonElement>("#readerZoomIn");
-  if (down) down.disabled = zoom <= 0.7;
-  if (up) up.disabled = zoom >= 2.2;
+  if (down) down.disabled = zoom <= PDF_MIN_ZOOM;
+  if (up) up.disabled = zoom >= PDF_MAX_ZOOM;
 }
 
 function readPdfZoom(): number {
-  return clamp(Number(window.localStorage.getItem("telegram-library-pdf-zoom")) || 1, 0.7, 2.2);
+  return clamp(Number(window.localStorage.getItem("telegram-library-pdf-zoom")) || 1, PDF_MIN_ZOOM, PDF_MAX_ZOOM);
 }
 
 function highlightMatch(value: string): string {

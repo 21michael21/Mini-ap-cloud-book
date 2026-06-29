@@ -101,6 +101,11 @@ type FoliateBook = PlainTextBook & {
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
+const PDF_MIN_ZOOM = 0.75;
+const PDF_MAX_ZOOM = 3;
+const PDF_ZOOM_STEP = 0.25;
+const PDF_MAX_DPR = 2.5;
+
 export function apiHeaders(initData: string): HeadersInit {
   return {
     "Content-Type": "application/json",
@@ -261,7 +266,7 @@ export async function openPdfReader(
   container.replaceChildren(canvas);
   let pageNumber = parsePdfPage(restoreLocator, pdf.numPages);
   let requestedPage = pageNumber;
-  let zoom = clamp(options.zoom ?? 1, 0.7, 2.2);
+  let zoom = clamp(options.zoom ?? 1, PDF_MIN_ZOOM, PDF_MAX_ZOOM);
   let renderPromise: Promise<void> | null = null;
   let requestedRenderId = 0;
   let completedRenderId = -1;
@@ -271,10 +276,10 @@ export async function openPdfReader(
     const pdfPage = await pdf.getPage(pageNumber);
     const baseViewport = pdfPage.getViewport({ scale: 1 });
     const fitWidthScale = (container.clientWidth || window.innerWidth) / baseViewport.width;
-    const scale = Math.min(fitWidthScale * zoom, 2.4);
+    const scale = fitWidthScale * zoom;
     const viewport = pdfPage.getViewport({ scale });
     const context = canvas.getContext("2d")!;
-    const dpr = clamp(window.devicePixelRatio || 1, 1, 2.5);
+    const dpr = clamp(window.devicePixelRatio || 1, 1, PDF_MAX_DPR);
     const cssWidth = Math.ceil(viewport.width);
     const cssHeight = Math.ceil(viewport.height);
     canvas.width = Math.ceil(cssWidth * dpr);
@@ -308,7 +313,7 @@ export async function openPdfReader(
   };
 
   const setZoom = async (nextZoom: number) => {
-    zoom = clamp(nextZoom, 0.7, 2.2);
+    zoom = clamp(nextZoom, PDF_MIN_ZOOM, PDF_MAX_ZOOM);
     options.onZoom?.(zoom);
     await renderPage(requestedPage);
   };
@@ -322,8 +327,8 @@ export async function openPdfReader(
     renderPage,
     previousPage: () => renderPage(requestedPage - 1),
     nextPage: () => renderPage(requestedPage + 1),
-    zoomOut: () => setZoom(zoom - 0.15),
-    zoomIn: () => setZoom(zoom + 0.15),
+    zoomOut: () => setZoom(zoom - PDF_ZOOM_STEP),
+    zoomIn: () => setZoom(zoom + PDF_ZOOM_STEP),
     getCurrentPosition: () => ({
       locator: String(pageNumber),
       percent: (pageNumber / pdf.numPages) * 100,

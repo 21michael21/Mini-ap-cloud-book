@@ -283,6 +283,21 @@ Run this in the real Telegram mobile client after deploy:
 
 If any Mini App request fails, check that `WEBAPP_URL` and `BACKEND_PUBLIC_URL` point to the same deployed HTTPS backend URL and that the bot service was restarted after env changes.
 
+## PDF Reader QA Checklist
+
+Run this on a real phone inside Telegram after deploy:
+
+1. Open a PDF from the Mini App library.
+   Expected: text edges look crisp, not blurry or pixelated.
+2. Tap `+` and `-` in the PDF toolbar.
+   Expected: zoom changes smoothly, current page stays current, and text remains readable.
+3. Tap `Prev` and `Next` quickly a few times.
+   Expected: the final rendered page matches the last requested page.
+4. Close the Mini App and reopen the same PDF via Continue.
+   Expected: the saved page restores correctly.
+5. If a PDF still looks low quality after zooming, check the original file.
+   Scanned or low-resolution source PDFs cannot be sharpened without OCR or source replacement.
+
 ## How to Check MVP Metrics
 
 Run the aggregate console report against the production or staging database:
