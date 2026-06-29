@@ -202,7 +202,10 @@ async def handle_document(message: Message) -> None:
             return
 
     note = " It is over 20 MB, so it is saved but cannot open in-app in the MVP." if too_large else ""
-    await message.answer(f"Added to Inbox: {title}.{note}", reply_markup=open_library_keyboard())
+    await message.answer(
+        f"Added to Inbox: {title}.{note}\n\nOpen Library to rename or organize it.",
+        reply_markup=open_library_keyboard(),
+    )
 
 
 async def main() -> None:

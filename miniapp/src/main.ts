@@ -79,6 +79,8 @@ let activeTextReader: TextReaderController | null = null;
 let readerToolbarVisible = true;
 let readerFontSizePx = readReaderFontSize();
 let pdfZoom = readPdfZoom();
+let toastMessage: string | null = null;
+let toastTimer = 0;
 
 function init() {
   tg?.ready?.();
@@ -201,15 +203,17 @@ async function updateBookMetadata(book: Book, title: string, author: string) {
     return;
   }
   try {
-    await api<Book>(`/api/books/${book.id}`, {
+    const updated = await api<Book>(`/api/books/${book.id}`, {
       method: "PATCH",
       body: JSON.stringify({
         title: title.trim(),
         author: author.trim() || null,
       }),
     });
+    replaceBookInState(updated);
     activeSheet = null;
-    await refreshCurrentView();
+    showToast("Book updated");
+    render();
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
       activeSheet = { kind: "edit", book, title, author, error: "This item was not found. Refreshing your library." };
@@ -282,6 +286,7 @@ function render() {
     </main>
     ${renderNav()}
     ${activeSheet ? renderSheet(activeSheet) : ""}
+    ${toastMessage ? `<div class="toast" role="status" aria-live="polite">${escapeHtml(toastMessage)}</div>` : ""}
   `;
 
   bindShellControls();
@@ -527,7 +532,7 @@ function renderBookRow(book: Book, index: number): string {
         <p>${escapeHtml(book.author ?? "Unknown author")}</p>
         ${renderProgress(book, "Reading progress")}
       </div>
-      <button class="row-menu-button" type="button" data-row-menu="${book.id}" aria-label="Book actions">${icon("more")}</button>
+      <button class="row-menu-button" type="button" data-row-menu="${book.id}" aria-label="Book actions: rename, move, remove">${icon("more")}</button>
     </article>
   `;
 }
@@ -634,7 +639,7 @@ function renderActionsSheet(sheet: Extract<SheetState, { kind: "actions" }>): st
         <div class="sheet-actions">
           <button class="sheet-action" type="button" id="sheetRead">${icon("bookOpen")}<span>Read</span></button>
           <button class="sheet-action" type="button" id="sheetMove">${icon("folderPlus")}<span>Move to folder</span></button>
-          <button class="sheet-action" type="button" id="sheetEdit">${icon("edit")}<span>Edit title/author</span></button>
+          <button class="sheet-action" type="button" id="sheetEdit" aria-label="Rename. Edit title and author">${icon("edit")}<span class="sheet-action-copy"><strong>Rename</strong><small>Edit title and author</small></span></button>
           <button class="sheet-action danger" type="button" id="sheetRemove">${icon("trash")}<span>Remove from library</span></button>
         </div>
       </section>
@@ -643,15 +648,19 @@ function renderActionsSheet(sheet: Extract<SheetState, { kind: "actions" }>): st
 }
 
 function renderEditBookSheet(sheet: Extract<SheetState, { kind: "edit" }>): string {
+  const fallbackTitle = fallbackTitleFromFileName(sheet.book.file_name);
+  const showFileNameHelper = sheet.book.title.trim() === fallbackTitle;
   return `
     <div class="sheet-layer" id="sheetScrim">
       <section class="bottom-sheet sheet-up" aria-label="Edit book">
         <div class="sheet-handle"></div>
         ${renderSheetBook(sheet.book)}
-        <h3>Edit title/author</h3>
+        <h3>Rename</h3>
+        <p class="sheet-note">Edit title and author.</p>
         <label class="folder-form">
           <span>Title</span>
-          <input id="bookTitleInput" value="${escapeHtml(sheet.title)}" maxlength="240" autocomplete="off" />
+          <input id="bookTitleInput" value="${escapeHtml(sheet.title)}" maxlength="240" autocomplete="off" autofocus />
+          ${showFileNameHelper ? `<small class="field-helper">Current title came from file name: ${escapeHtml(sheet.book.file_name)}</small>` : ""}
         </label>
         <label class="folder-form">
           <span>Author</span>
@@ -739,7 +748,11 @@ function bindBookButtons() {
   });
 
   document.querySelectorAll<HTMLElement>("[data-row-menu]").forEach((button) => {
+    button.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    });
     button.addEventListener("click", (event) => {
+      event.preventDefault();
       event.stopPropagation();
       const book = findBook(Number(button.dataset.rowMenu));
       if (!book) return;
@@ -753,7 +766,8 @@ function bindBookButtons() {
     let longPressed = false;
     const id = Number(row.dataset.bookId);
 
-    row.addEventListener("pointerdown", () => {
+    row.addEventListener("pointerdown", (event) => {
+      if ((event.target as HTMLElement).closest("[data-row-menu]")) return;
       longPressed = false;
       pressTimer = window.setTimeout(() => {
         const book = findBook(id);
@@ -917,6 +931,30 @@ function clearSearch() {
   searchQuery = "";
   booksState = filterBooks(allBooksState);
   render();
+}
+
+function replaceBookInState(updated: Book) {
+  const replace = (book: Book) => (book.id === updated.id ? updated : book);
+  allBooksState = allBooksState.map(replace);
+  booksState = filterBooks(allBooksState);
+  if (homeState) {
+    homeState = {
+      ...homeState,
+      continue_book: homeState.continue_book?.id === updated.id ? updated : homeState.continue_book,
+      recent: homeState.recent.map(replace),
+    };
+  }
+  if (activeBook?.id === updated.id) activeBook = updated;
+}
+
+function showToast(message: string) {
+  toastMessage = message;
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => {
+    toastMessage = null;
+    document.querySelector(".toast")?.remove();
+    if (view !== "reader") render();
+  }, 2200);
 }
 
 function openBookById(id: number, sourceText: string) {
@@ -1257,6 +1295,11 @@ function progressLabel(book: Book): string {
   if (book.too_large) return "Original";
   const percent = clamp(Math.round(book.progress_percent), 0, 100);
   return percent > 0 ? `${percent}%` : "New";
+}
+
+function fallbackTitleFromFileName(fileName: string): string {
+  const withoutExtension = fileName.replace(/\.[^.]+$/, "");
+  return withoutExtension.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim() || fileName;
 }
 
 function progressDetail(book: Book): string {

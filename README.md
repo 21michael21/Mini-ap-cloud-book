@@ -203,6 +203,16 @@ Expected health/version shape:
 
 If `commit` or `built_at` is `unknown`, the image was built without the Docker build args. The app can still run, but you cannot confirm the deployed commit from your phone.
 
+### Version sanity without user-facing debug UI
+
+The Mini App does not show debug build metadata to normal users. To verify what is deployed, use:
+
+```bash
+curl -fsS <BACKEND_PUBLIC_URL>/api/version
+```
+
+The bot also responds to `/version` with the bot/backend URLs and build metadata configured for the running service.
+
 ## Telegram Client E2E Checklist
 
 Run this in the real Telegram mobile client after deploy:
