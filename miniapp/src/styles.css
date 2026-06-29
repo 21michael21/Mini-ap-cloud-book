@@ -86,6 +86,21 @@
   --focus-ring: rgba(139, 155, 255, 0.2);
   --accent-soft: rgba(139, 155, 255, 0.16);
   --accent-border: rgba(139, 155, 255, 0.3);
+  /* Theme-safe button tokens. Keep these in sync when changing app or reader themes. */
+  --button-bg: #202536;
+  --button-bg-pressed: #28304a;
+  --button-text: #f4f6fb;
+  --button-muted-text: #b9c0d1;
+  --button-border: #343b52;
+  --button-disabled-bg: #1a1f2d;
+  --button-disabled-text: #7b8499;
+  --button-primary-bg: #a5b2ff;
+  --button-primary-text: #090b10;
+  --button-ghost-bg: #171b25;
+  --button-ghost-text: #f4f6fb;
+  --button-danger-bg: #f07b7d;
+  --button-danger-text: #110d0e;
+  --danger-soft-text: #ffb9ba;
   font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -114,6 +129,20 @@
   --focus-ring: rgba(101, 117, 246, 0.18);
   --accent-soft: rgba(101, 117, 246, 0.14);
   --accent-border: rgba(101, 117, 246, 0.3);
+  --button-bg: #eef1f8;
+  --button-bg-pressed: #e3e8f4;
+  --button-text: #171b26;
+  --button-muted-text: #596278;
+  --button-border: #c9d0df;
+  --button-disabled-bg: #e8ecf4;
+  --button-disabled-text: #667085;
+  --button-primary-bg: #4658e8;
+  --button-primary-text: #ffffff;
+  --button-ghost-bg: #ffffff;
+  --button-ghost-text: #171b26;
+  --button-danger-bg: #b93645;
+  --button-danger-text: #ffffff;
+  --danger-soft-text: #a52f3d;
 }
 
 * {
@@ -181,10 +210,10 @@ input:focus-visible {
   align-items: center;
   gap: 2px;
   padding: 3px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--button-border);
   border-radius: 999px;
-  background: var(--surface);
-  color: var(--muted);
+  background: var(--button-ghost-bg);
+  color: var(--button-muted-text);
 }
 
 .theme-toggle span {
@@ -197,7 +226,7 @@ input:focus-visible {
 
 .theme-toggle__active {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--text);
 }
 
 .home-section {
@@ -235,7 +264,7 @@ input:focus-visible {
 .text-button {
   padding: 0;
   background: transparent;
-  color: var(--muted);
+  color: var(--button-muted-text);
   font-size: 12px;
 }
 
@@ -617,8 +646,8 @@ input:focus-visible {
   height: 20px;
   place-items: center;
   border-radius: 999px;
-  background: var(--line-2);
-  color: var(--muted);
+  background: var(--button-bg);
+  color: var(--button-muted-text);
 }
 
 .result-count {
@@ -655,15 +684,16 @@ input:focus-visible {
   width: 32px;
   height: 32px;
   place-items: center;
-  border: 1px solid var(--line);
+  border: 1px solid var(--button-border);
   border-radius: 10px;
-  background: var(--surface-2);
-  color: var(--muted);
+  background: var(--button-bg);
+  color: var(--button-muted-text);
 }
 
 .row-menu-button:active {
   border-color: var(--accent);
-  color: var(--accent);
+  background: var(--button-bg-pressed);
+  color: var(--button-text);
   transform: scale(0.96);
 }
 
@@ -922,8 +952,8 @@ mark {
   margin-top: 26px;
   padding: 0 22px;
   border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: var(--bg);
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
   font-size: 14px;
   font-weight: 600;
 }
@@ -955,29 +985,43 @@ mark {
 .ghost-button {
   margin-top: 22px;
   padding: 0 20px;
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--text);
+  border: 1px solid var(--button-border);
+  background: var(--button-ghost-bg);
+  color: var(--button-ghost-text);
+}
+
+.ghost-button:disabled {
+  background: var(--button-disabled-bg);
+  color: var(--button-disabled-text);
+  cursor: not-allowed;
 }
 
 .primary-action {
   width: 100%;
   margin-top: 18px;
-  background: var(--accent);
-  color: var(--bg);
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
 }
 
 .primary-action:disabled {
-  opacity: 0.45;
+  background: var(--button-disabled-bg);
+  color: var(--button-disabled-text);
+  cursor: not-allowed;
 }
 
 .danger-action {
   min-height: 44px;
   padding: 0 20px;
   border-radius: 13px;
-  background: var(--danger);
-  color: var(--text);
+  background: var(--button-danger-bg);
+  color: var(--button-danger-text);
   font-weight: 600;
+}
+
+.danger-action:disabled {
+  background: var(--button-disabled-bg);
+  color: var(--button-disabled-text);
+  cursor: not-allowed;
 }
 
 .nav {
@@ -1103,7 +1147,7 @@ mark {
 
 .sheet-error {
   margin: 10px 4px 0;
-  color: #ffb3b3;
+  color: var(--danger-soft-text);
   font-size: 12px;
 }
 
@@ -1126,10 +1170,10 @@ mark {
   gap: 12px;
   min-height: 48px;
   padding: 0 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--button-border);
   border-radius: 14px;
-  background: var(--surface-2);
-  color: var(--text);
+  background: var(--button-bg);
+  color: var(--button-text);
   font-weight: 600;
   text-align: left;
 }
@@ -1138,12 +1182,16 @@ mark {
   color: var(--accent);
 }
 
+.sheet-action:active {
+  background: var(--button-bg-pressed);
+}
+
 .sheet-action.danger {
-  color: #ffb3b3;
+  color: var(--danger-soft-text);
 }
 
 .sheet-action.danger svg {
-  color: #ffb3b3;
+  color: var(--danger-soft-text);
 }
 
 .sheet-buttons {
@@ -1244,9 +1292,42 @@ mark {
 
 body.reader-light .reader {
   --surface: #f8f4ea;
+  --surface-2: #eee5d6;
+  --surface-3: #fdfaf3;
   --text: #1d1a16;
   --muted: #6e675f;
   --line: #ded6c7;
+  --accent: #6d4fbf;
+  --accent-soft: rgba(109, 79, 191, 0.14);
+  --button-bg: #eee5d6;
+  --button-bg-pressed: #e3d6c2;
+  --button-text: #1d1a16;
+  --button-muted-text: #5f574f;
+  --button-border: #d5c7b4;
+  --button-disabled-bg: #e8dfd1;
+  --button-disabled-text: #6f665b;
+  --button-ghost-bg: #f8f4ea;
+  --button-ghost-text: #1d1a16;
+}
+
+body:not(.reader-light) .reader {
+  --surface: #151821;
+  --surface-2: #202536;
+  --surface-3: #1a1f2e;
+  --text: #f4f6fb;
+  --muted: #aeb6c8;
+  --line: #343b52;
+  --accent: #a5b2ff;
+  --accent-soft: rgba(165, 178, 255, 0.18);
+  --button-bg: #202536;
+  --button-bg-pressed: #28304a;
+  --button-text: #f4f6fb;
+  --button-muted-text: #b9c0d1;
+  --button-border: #343b52;
+  --button-disabled-bg: #1a1f2d;
+  --button-disabled-text: #8791a6;
+  --button-ghost-bg: #171b25;
+  --button-ghost-text: #f4f6fb;
 }
 
 .reader-toolbar {
@@ -1260,7 +1341,7 @@ body.reader-light .reader {
   justify-content: space-between;
   gap: 6px;
   padding: 7px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--button-border);
   border-radius: 13px;
   background: var(--surface);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
@@ -1284,19 +1365,22 @@ body.reader-light .reader {
   min-width: 40px;
   padding: 0 10px;
   border-radius: 10px;
-  background: var(--surface-2);
-  color: var(--text);
+  border: 1px solid var(--button-border);
+  background: var(--button-bg);
+  color: var(--button-text);
   white-space: nowrap;
 }
 
 .secondary:disabled {
-  opacity: 0.42;
+  background: var(--button-disabled-bg);
+  color: var(--button-disabled-text);
+  cursor: not-allowed;
 }
 
 .reader-progress {
   flex: 1;
   min-width: 56px;
-  color: var(--muted);
+  color: var(--button-muted-text);
   font-size: 12px;
   line-height: 1.15;
   text-align: center;

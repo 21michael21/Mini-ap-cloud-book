@@ -48,8 +48,14 @@ html.reader-font-26 {
 
 body {
   padding: 0 18px 28px;
+  background: #ffffff;
+  color: #1d1a16;
   font-size: 1rem;
   line-height: 1.62;
+}
+
+a {
+  color: #4658e8;
 }
 
 pre {
