@@ -222,6 +222,26 @@ Run this in the real Telegram mobile client after deploy:
 
 If any Mini App request fails, check that `WEBAPP_URL` and `BACKEND_PUBLIC_URL` point to the same deployed HTTPS backend URL and that the bot service was restarted after env changes.
 
+## How to Check MVP Metrics
+
+Run the aggregate console report against the production or staging database:
+
+```bash
+DATABASE_URL=postgresql+psycopg://user:password@host:5432/telegram_library \
+  .venv/bin/python scripts/mvp_metrics.py
+```
+
+For machine-readable output:
+
+```bash
+DATABASE_URL=postgresql+psycopg://user:password@host:5432/telegram_library \
+  .venv/bin/python scripts/mvp_metrics.py --json
+```
+
+The report prints only aggregate counts: users, books, formats, core events,
+active users, and simple MVP signals. It does not print Telegram usernames or
+raw Telegram user ids.
+
 ## Verification
 
 ```bash
