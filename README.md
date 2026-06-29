@@ -94,6 +94,29 @@ python -m compileall backend bot
 cd miniapp && npm install && npm run build
 ```
 
+Reader harness verification uses local generated files and the same authenticated file endpoint as the app:
+
+```bash
+python dev/generate_reader_samples.py
+export HARNESS_BOT_TOKEN="use-a-valid-test-token-shape"
+BOT_TOKEN="$HARNESS_BOT_TOKEN" \
+DATABASE_URL=sqlite+pysqlite:///dev/reader_harness.sqlite3 \
+FILE_CACHE_DIR=dev/file_cache \
+PYTHONPATH=. python dev/seed_reader_harness.py
+
+INIT_DATA=$(BOT_TOKEN="$HARNESS_BOT_TOKEN" python dev/make_init_data.py)
+cd miniapp
+VITE_API_BASE=http://localhost:8000 VITE_DEV_INIT_DATA="$INIT_DATA" npm run build:harness
+```
+
+The Mini App CSP is intentionally strict:
+
+```text
+default-src 'self'; script-src 'self' https://telegram.org https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:8000 https:; worker-src 'self' blob: https://cdn.jsdelivr.net; frame-src blob: data:; object-src 'none'; base-uri 'none';
+```
+
+Book HTML is sanitized before rendering and placed in sandboxed iframes with `sandbox="allow-same-origin"` and no `allow-scripts`.
+
 Completion requires the local and remote hashes to match:
 
 ```bash

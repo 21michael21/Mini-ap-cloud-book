@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/patch-foliate-sandbox.mjs",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
+    "build:harness": "tsc && VERIFY_READER=1 vite build --outDir dist-harness",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {

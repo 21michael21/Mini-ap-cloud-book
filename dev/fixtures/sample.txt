@@ -1,0 +1,3 @@
+Harness TXT
+
+This plain text document proves the TXT reader renders visible text.

@@ -10,7 +10,10 @@ __pycache__/
 .DS_Store
 file_cache/*
 !file_cache/.gitkeep
+dev/*.sqlite3
+dev/file_cache/
 miniapp/node_modules/
 miniapp/dist/
+miniapp/dist-harness/
 htmlcov/
 .coverage

@@ -161,17 +161,22 @@ button {
   color: var(--muted);
 }
 
-.progress {
+.progress,
+progress.progress {
   width: 100%;
   height: 6px;
   overflow: hidden;
   border-radius: 999px;
   background: var(--surface-soft);
+  border: 0;
 }
 
-.progress > span {
-  display: block;
-  height: 100%;
+progress.progress::-webkit-progress-bar {
+  background: var(--surface-soft);
+}
+
+progress.progress::-webkit-progress-value,
+progress.progress::-moz-progress-bar {
   background: var(--accent);
 }
 
@@ -282,6 +287,14 @@ foliate-view {
   display: block;
   width: 100%;
   height: calc(100vh - 72px);
+}
+
+.book-frame {
+  display: block;
+  width: 100%;
+  min-height: 65vh;
+  border: 0;
+  background: #fff;
 }
 
 .pdf-canvas {

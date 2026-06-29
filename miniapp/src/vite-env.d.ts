@@ -1,6 +1,9 @@
 /// <reference types="vite/client" />
 
 declare module "foliate-js/view.js";
+declare module "foliate-js/epub.js";
+declare module "foliate-js/fb2.js";
+declare module "foliate-js/vendor/zip.js";
 
 interface Window {
   Telegram?: {

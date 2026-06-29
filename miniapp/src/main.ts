@@ -1,4 +1,4 @@
-import * as pdfjs from "pdfjs-dist";
+import { apiHeaders, fetchBookFile, openFoliateReader, openPdfReader } from "./readerCore";
 import "./styles.css";
 
 type Book = {
@@ -40,8 +40,6 @@ let selectedFolderId: number | null | "inbox" | "all" = "all";
 let activeBook: Book | null = null;
 let readerTheme: "light" | "dark" = tg?.colorScheme === "dark" ? "dark" : "light";
 
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@6.1.200/build/pdf.worker.mjs`;
-
 function init() {
   tg?.ready?.();
   tg?.expand?.();
@@ -50,10 +48,11 @@ function init() {
 }
 
 function headers(): HeadersInit {
-  return {
-    "Content-Type": "application/json",
-    "X-Telegram-Init-Data": tg?.initData || import.meta.env.VITE_DEV_INIT_DATA || "",
-  };
+  return apiHeaders(initData());
+}
+
+function initData(): string {
+  return tg?.initData || import.meta.env.VITE_DEV_INIT_DATA || "";
 }
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -249,7 +248,7 @@ function bookSummary(book: Book): string {
       <span>${escapeHtml(book.format.toUpperCase())}</span>
       <span>${Math.round(book.progress_percent)}%</span>
     </p>
-    <div class="progress"><span style="width:${book.progress_percent}%"></span></div>
+    <progress class="progress" max="100" value="${book.progress_percent}" aria-label="Reading progress"></progress>
   `;
 }
 
@@ -334,55 +333,26 @@ function renderReader(book: Book) {
 }
 
 async function renderTextBook(book: Book) {
-  await import("foliate-js/view.js");
-  const stage = document.querySelector("#readerStage")!;
-  const fileUrl = `${API_BASE}/api/books/${book.id}/file`;
-  const response = await fetch(fileUrl, { headers: headers() });
-  const blob = await response.blob();
-  const file = new File([blob], book.file_name, { type: blob.type });
-  const foliateView = document.createElement("foliate-view") as HTMLElement & {
-    open: (file: File) => Promise<void>;
-    goTo: (locator: string) => Promise<void>;
-  };
-  stage.append(foliateView);
-  foliateView.addEventListener("relocate", (event: Event) => {
-    const detail = (event as CustomEvent).detail;
-    const percent = Math.round((detail?.fraction ?? 0) * 10000) / 100;
-    const locator = detail?.cfi ?? JSON.stringify({ index: detail?.index ?? 0, fraction: detail?.fraction ?? 0 });
-    void savePosition(book.id, locator, percent);
-  });
-  await foliateView.open(file);
+  const stage = document.querySelector<HTMLElement>("#readerStage")!;
   const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
-  if (pos?.locator) await foliateView.goTo(pos.locator);
+  const file = await fetchBookFile(API_BASE, initData(), book);
+  await openFoliateReader(stage, file, pos?.locator ?? null, (position) => {
+    void savePosition(book.id, position.locator, position.percent);
+  });
 }
 
 async function renderPdf(book: Book) {
-  const stage = document.querySelector("#readerStage")!;
-  const response = await fetch(`${API_BASE}/api/books/${book.id}/file`, { headers: headers() });
-  const buffer = await response.arrayBuffer();
-  const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+  const stage = document.querySelector<HTMLElement>("#readerStage")!;
   const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
-  let pageNumber = Math.min(Math.max(Number(pos?.locator ?? 1), 1), pdf.numPages);
-  const canvas = document.createElement("canvas");
-  canvas.className = "pdf-canvas";
-  stage.append(canvas);
-
-  const renderPage = async () => {
-    const page = await pdf.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: Math.min(window.innerWidth / page.getViewport({ scale: 1 }).width, 1.6) });
-    const context = canvas.getContext("2d")!;
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    await page.render({ canvasContext: context, viewport }).promise;
-    await savePosition(book.id, String(pageNumber), (pageNumber / pdf.numPages) * 100);
-  };
+  const file = await fetchBookFile(API_BASE, initData(), book);
+  const pdfReader = await openPdfReader(stage, file, pos?.locator ?? null, (position) => {
+    void savePosition(book.id, position.locator, position.percent);
+  });
 
   stage.addEventListener("click", (event) => {
-    pageNumber += (event as MouseEvent).clientX > window.innerWidth / 2 ? 1 : -1;
-    pageNumber = Math.min(Math.max(pageNumber, 1), pdf.numPages);
-    void renderPage();
+    const nextPage = pdfReader.getPageNumber() + ((event as MouseEvent).clientX > window.innerWidth / 2 ? 1 : -1);
+    void pdfReader.renderPage(nextPage);
   });
-  await renderPage();
 }
 
 async function savePosition(bookId: number, locator: string, percent: number) {

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+  <description>
+    <title-info>
+      <author><first-name>Harness</first-name><last-name>Author</last-name></author>
+      <book-title>Harness FB2</book-title>
+      <lang>en</lang>
+    </title-info>
+  </description>
+  <body>
+    <section>
+      <title><p>Harness FB2</p></title>
+      <p>This FB2 document proves the FictionBook reader renders visible text.</p>
+    </section>
+  </body>
+</FictionBook>

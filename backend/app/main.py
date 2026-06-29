@@ -42,11 +42,12 @@ async def add_security_headers(request, call_next):
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' https://telegram.org https://cdn.jsdelivr.net; "
-        "style-src 'self' 'unsafe-inline'; "
+        "style-src 'self'; "
         "img-src 'self' data: blob:; "
         "font-src 'self' data:; "
         "connect-src 'self' https:; "
         "worker-src 'self' blob: https://cdn.jsdelivr.net; "
+        "frame-src blob: data:; "
         "object-src 'none'; "
         "base-uri 'none'; "
         "frame-ancestors 'self' https://web.telegram.org;"
