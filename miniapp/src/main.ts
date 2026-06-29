@@ -44,6 +44,8 @@ type SheetState =
   | { kind: "folder"; name: string; error: string | null }
   | null;
 type AppTheme = "day" | "night";
+type PendingAction = "folder" | "move" | "edit" | "remove" | null;
+type ToastKind = "info" | "success" | "error";
 
 class ApiError extends Error {
   constructor(
@@ -80,7 +82,10 @@ let readerToolbarVisible = true;
 let readerFontSizePx = readReaderFontSize();
 let pdfZoom = readPdfZoom();
 let toastMessage: string | null = null;
+let toastKind: ToastKind = "info";
 let toastTimer = 0;
+let pendingAction: PendingAction = null;
+let positionSaveErrorShown = false;
 
 function init() {
   tg?.ready?.();
@@ -127,6 +132,8 @@ async function loadHome() {
     allBooksState = allBooks;
   } catch (error) {
     errorMessage = readableError(error);
+    hapticNotification("error");
+    showToast("Network error. Try again.", "error");
   } finally {
     isHomeLoading = false;
     render();
@@ -146,6 +153,8 @@ async function loadBooks(scope: LibraryScope = selectedFolderId) {
     booksState = filterBooks(allBooksState);
   } catch (error) {
     errorMessage = readableError(error);
+    hapticNotification("error");
+    showToast("Network error. Try again.", "error");
   } finally {
     isLibraryLoading = false;
     render();
@@ -153,38 +162,57 @@ async function loadBooks(scope: LibraryScope = selectedFolderId) {
 }
 
 async function createFolder() {
+  hapticImpact();
   activeSheet = { kind: "folder", name: "", error: null };
   render();
 }
 
 async function submitFolder(name: string) {
-  if (!name.trim()) return;
+  if (!name.trim() || pendingAction) return;
+  pendingAction = "folder";
+  render();
   try {
     await api<Folder>("/api/folders", {
       method: "POST",
       body: JSON.stringify({ name: name.trim() }),
     });
     activeSheet = null;
+    hapticNotification("success");
+    showToast("Folder created", "success");
     if (view === "library") {
       await loadBooks(selectedFolderId);
     } else {
       await loadHome();
     }
   } catch (error) {
+    hapticNotification("error");
+    showToast("Could not create folder", "error");
+    pendingAction = null;
     activeSheet = { kind: "folder", name, error: readableError(error) };
     render();
+  } finally {
+    pendingAction = null;
   }
 }
 
 async function moveBookToFolder(book: Book, folderId: number | null) {
+  if (pendingAction) return;
+  pendingAction = "move";
+  render();
   try {
-    await api<Book>(`/api/books/${book.id}/move`, {
+    const updated = await api<Book>(`/api/books/${book.id}/move`, {
       method: "PATCH",
       body: JSON.stringify({ folder_id: folderId }),
     });
+    replaceBookInState(updated);
     activeSheet = null;
-    await refreshCurrentView();
+    hapticNotification("success");
+    showToast("Book moved", "success");
+    render();
   } catch (error) {
+    hapticNotification("error");
+    showToast("Could not move book", "error");
+    pendingAction = null;
     if (error instanceof ApiError && error.status === 404) {
       activeSheet = { kind: "actions", book, error: "This item was not found. Refreshing your library." };
       render();
@@ -193,15 +221,20 @@ async function moveBookToFolder(book: Book, folderId: number | null) {
     }
     activeSheet = { kind: "actions", book, error: readableError(error) };
     render();
+  } finally {
+    pendingAction = null;
   }
 }
 
 async function updateBookMetadata(book: Book, title: string, author: string) {
+  if (pendingAction) return;
   if (!title.trim()) {
     activeSheet = { kind: "edit", book, title, author, error: "Title must not be empty." };
     render();
     return;
   }
+  pendingAction = "edit";
+  render();
   try {
     const updated = await api<Book>(`/api/books/${book.id}`, {
       method: "PATCH",
@@ -212,9 +245,13 @@ async function updateBookMetadata(book: Book, title: string, author: string) {
     });
     replaceBookInState(updated);
     activeSheet = null;
-    showToast("Book updated");
+    hapticNotification("success");
+    showToast("Book updated", "success");
     render();
   } catch (error) {
+    hapticNotification("error");
+    showToast("Could not update book", "error");
+    pendingAction = null;
     if (error instanceof ApiError && error.status === 404) {
       activeSheet = { kind: "edit", book, title, author, error: "This item was not found. Refreshing your library." };
       render();
@@ -223,19 +260,30 @@ async function updateBookMetadata(book: Book, title: string, author: string) {
     }
     activeSheet = { kind: "edit", book, title, author, error: readableError(error) };
     render();
+  } finally {
+    pendingAction = null;
   }
 }
 
 async function removeBookFromLibrary(book: Book) {
+  if (pendingAction) return;
+  pendingAction = "remove";
+  render();
   try {
     await api<void>(`/api/books/${book.id}`, { method: "DELETE" });
     if (activeBook?.id === book.id) {
       cleanupActiveReader(true);
       activeBook = null;
     }
+    removeBookFromState(book.id);
     activeSheet = null;
-    await refreshCurrentView();
+    hapticNotification("success");
+    showToast("Book removed", "success");
+    render();
   } catch (error) {
+    hapticNotification("error");
+    showToast("Could not remove book", "error");
+    pendingAction = null;
     if (error instanceof ApiError && error.status === 404) {
       activeSheet = { kind: "remove", book, error: "This item was already removed. Refreshing your library." };
       render();
@@ -244,6 +292,8 @@ async function removeBookFromLibrary(book: Book) {
     }
     activeSheet = { kind: "remove", book, error: readableError(error) };
     render();
+  } finally {
+    pendingAction = null;
   }
 }
 
@@ -286,7 +336,7 @@ function render() {
     </main>
     ${renderNav()}
     ${activeSheet ? renderSheet(activeSheet) : ""}
-    ${toastMessage ? `<div class="toast" role="status" aria-live="polite">${escapeHtml(toastMessage)}</div>` : ""}
+    ${renderToast()}
   `;
 
   bindShellControls();
@@ -367,9 +417,9 @@ function renderEmptyHome(): string {
         <div class="empty-icon">${icon("bookOpen")}</div>
       </div>
       <h2>Your library is empty</h2>
-      <p>Send a file to the bot to start your library.</p>
+      <p>Send EPUB, FB2, TXT or PDF to the bot.</p>
       <div class="empty-cta">
-        <span>Send a file to the bot</span>
+        <span>Send EPUB, FB2, TXT or PDF to the bot</span>
         <span class="arrow-bob">${icon("arrowDown")}</span>
       </div>
     </div>
@@ -377,6 +427,7 @@ function renderEmptyHome(): string {
 }
 
 function renderContinueHero(book: Book): string {
+  const hasProgress = book.progress_percent > 0;
   return `
     <button class="continue-hero glow" type="button" data-open="${book.id}">
       ${renderCover(book, "hero-cover")}
@@ -384,6 +435,7 @@ function renderContinueHero(book: Book): string {
         <span class="format-badge">${escapeHtml(book.format.toUpperCase())}</span>
         <strong>${escapeHtml(book.title)}</strong>
         <em>${escapeHtml(book.author ?? "Unknown author")}</em>
+        <span class="continue-action">${hasProgress ? "Continue" : "Start reading"}</span>
         ${renderProgress(book, "Continue reading", continueProgressDetail(book))}
       </span>
     </button>
@@ -413,6 +465,8 @@ function renderLibrary(): string {
     ${
       noBooksAtAll
         ? renderLibraryEmpty()
+        : !hasQuery && filteredBooks.length === 0
+          ? renderScopedEmpty()
         : hasQuery && filteredBooks.length === 0
           ? renderNoResults()
           : `<div class="book-list">${filteredBooks.map((book, index) => renderBookRow(book, index)).join("")}</div>`
@@ -484,7 +538,18 @@ function renderLibraryEmpty(): string {
     <div class="empty-state empty-state--library">
       <div class="empty-icon">${icon("library")}</div>
       <h2>Nothing here yet</h2>
-      <p>Books you send to the bot will fill your library automatically.</p>
+      <p>Send EPUB, FB2, TXT or PDF to the bot.</p>
+    </div>
+  `;
+}
+
+function renderScopedEmpty(): string {
+  const isInbox = selectedFolderId === "inbox";
+  return `
+    <div class="empty-state empty-state--library">
+      <div class="empty-icon">${icon(isInbox ? "arrowDown" : "folderPlus")}</div>
+      <h2>${isInbox ? "Inbox is empty" : "Folder is empty"}</h2>
+      <p>${isInbox ? "New files land here first." : "Move books here with the ... menu."}</p>
     </div>
   `;
 }
@@ -494,7 +559,7 @@ function renderNoResults(): string {
     <div class="empty-state empty-state--library">
       <div class="empty-icon">${icon("search")}</div>
       <h2>No matches for "${escapeHtml(searchQuery)}"</h2>
-      <p>Try another title or author. Search looks at metadata, not file names.</p>
+      <p>Search currently checks title and author.</p>
       <button class="ghost-button" type="button" id="clearSearchEmpty">Clear search</button>
     </div>
   `;
@@ -611,7 +676,7 @@ function renderSheet(sheet: SheetState): string {
             .join("")}
           <button class="folder-chip dashed" type="button" id="sheetNewFolder">${icon("plus")}<b>New folder</b></button>
         </div>
-        <button class="primary-action" type="button" id="confirmMove">Move here</button>
+        <button class="primary-action" type="button" id="confirmMove" ${pendingAction === "move" ? "disabled" : ""}>${pendingAction === "move" ? "Moving..." : "Move here"}</button>
       </section>
     </div>
   `;
@@ -667,7 +732,7 @@ function renderEditBookSheet(sheet: Extract<SheetState, { kind: "edit" }>): stri
           <input id="bookAuthorInput" value="${escapeHtml(sheet.author)}" maxlength="240" autocomplete="off" />
         </label>
         ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
-        <button class="primary-action" type="button" id="confirmBookEdit" ${sheet.title.trim() ? "" : "disabled"}>Save</button>
+        <button class="primary-action" type="button" id="confirmBookEdit" ${sheet.title.trim() && pendingAction !== "edit" ? "" : "disabled"}>${pendingAction === "edit" ? "Saving..." : "Save"}</button>
       </section>
     </div>
   `;
@@ -684,7 +749,7 @@ function renderRemoveBookSheet(sheet: Extract<SheetState, { kind: "remove" }>): 
         ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
         <div class="sheet-buttons">
           <button class="ghost-button sheet-cancel" type="button" id="cancelRemove">Cancel</button>
-          <button class="danger-action" type="button" id="confirmRemove">Remove</button>
+          <button class="danger-action" type="button" id="confirmRemove" ${pendingAction === "remove" ? "disabled" : ""}>${pendingAction === "remove" ? "Removing..." : "Remove"}</button>
         </div>
       </section>
     </div>
@@ -703,7 +768,7 @@ function renderFolderSheet(sheet: Extract<SheetState, { kind: "folder" }>): stri
           <input id="folderNameInput" value="${escapeHtml(sheet.name)}" maxlength="120" autocomplete="off" />
         </label>
         ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
-        <button class="primary-action" type="button" id="confirmFolder" ${sheet.name.trim() ? "" : "disabled"}>Create</button>
+        <button class="primary-action" type="button" id="confirmFolder" ${sheet.name.trim() && pendingAction !== "folder" ? "" : "disabled"}>${pendingAction === "folder" ? "Creating..." : "Create"}</button>
       </section>
     </div>
   `;
@@ -734,6 +799,8 @@ function bindShellControls() {
   });
   document.querySelector("#folderNav")?.addEventListener("click", () => void createFolder());
   document.querySelector("#retryLoad")?.addEventListener("click", () => {
+    hapticImpact();
+    showToast("Retrying...", "info");
     if (view === "home") void loadHome();
     else void loadBooks(selectedFolderId);
   });
@@ -756,6 +823,7 @@ function bindBookButtons() {
       event.stopPropagation();
       const book = findBook(Number(button.dataset.rowMenu));
       if (!book) return;
+      hapticImpact();
       activeSheet = { kind: "actions", book, error: null };
       render();
     });
@@ -773,6 +841,7 @@ function bindBookButtons() {
         const book = findBook(id);
         if (!book) return;
         longPressed = true;
+        hapticImpact();
         activeSheet = { kind: "actions", book, error: null };
         render();
       }, 520);
@@ -787,6 +856,7 @@ function bindBookButtons() {
       event.preventDefault();
       const book = findBook(id);
       if (!book) return;
+      hapticImpact();
       activeSheet = { kind: "actions", book, error: null };
       render();
     });
@@ -806,6 +876,7 @@ function bindLibraryControls() {
       } else {
         selectedFolderId = scope === "inbox" ? "inbox" : "all";
       }
+      hapticSelection();
       booksState = filterBooks(allBooksState);
       render();
     });
@@ -816,6 +887,7 @@ function bindLibraryControls() {
       selectedFolderId = raw === "inbox" ? "inbox" : Number(raw);
       searchQuery = "";
       view = "library";
+      hapticSelection();
       if (allBooksState.length) {
         booksState = filterBooks(allBooksState);
         render();
@@ -865,14 +937,17 @@ function bindSheetControls() {
       openBookById(book.id, "Read");
     });
     document.querySelector("#sheetMove")?.addEventListener("click", () => {
+      hapticSelection();
       activeSheet = { kind: "move", book, targetFolderId: book.folder_id };
       render();
     });
     document.querySelector("#sheetEdit")?.addEventListener("click", () => {
+      hapticSelection();
       activeSheet = { kind: "edit", book, title: book.title, author: book.author ?? "", error: null };
       render();
     });
     document.querySelector("#sheetRemove")?.addEventListener("click", () => {
+      hapticSelection();
       activeSheet = { kind: "remove", book, error: null };
       render();
     });
@@ -917,6 +992,7 @@ function bindSheetControls() {
       if (!activeSheet || activeSheet.kind !== "move") return;
       const raw = button.dataset.sheetFolder!;
       activeSheet = { ...activeSheet, targetFolderId: raw === "inbox" ? null : Number(raw) };
+      hapticSelection();
       render();
     });
   });
@@ -947,14 +1023,58 @@ function replaceBookInState(updated: Book) {
   if (activeBook?.id === updated.id) activeBook = updated;
 }
 
-function showToast(message: string) {
+function removeBookFromState(bookId: number) {
+  allBooksState = allBooksState.filter((book) => book.id !== bookId);
+  booksState = filterBooks(allBooksState);
+  if (homeState) {
+    homeState = {
+      ...homeState,
+      continue_book: homeState.continue_book?.id === bookId ? null : homeState.continue_book,
+      recent: homeState.recent.filter((book) => book.id !== bookId),
+    };
+  }
+}
+
+function showToast(message: string, kind: ToastKind = "info") {
   toastMessage = message;
+  toastKind = kind;
   window.clearTimeout(toastTimer);
+  if (view === "reader") syncToastElement();
   toastTimer = window.setTimeout(() => {
     toastMessage = null;
-    document.querySelector(".toast")?.remove();
+    document.querySelectorAll(".toast").forEach((toast) => toast.remove());
     if (view !== "reader") render();
   }, 2200);
+}
+
+function renderToast(): string {
+  return toastMessage ? `<div class="toast toast--${toastKind}" role="status" aria-live="polite">${escapeHtml(toastMessage)}</div>` : "";
+}
+
+function syncToastElement() {
+  const existing = document.querySelector<HTMLElement>(".toast");
+  if (!toastMessage) {
+    existing?.remove();
+    return;
+  }
+  if (existing) {
+    existing.className = `toast toast--${toastKind}`;
+    existing.textContent = toastMessage;
+    return;
+  }
+  document.body.insertAdjacentHTML("beforeend", renderToast());
+}
+
+function hapticImpact() {
+  tg?.HapticFeedback?.impactOccurred("light");
+}
+
+function hapticSelection() {
+  tg?.HapticFeedback?.selectionChanged();
+}
+
+function hapticNotification(type: "success" | "error" | "warning") {
+  tg?.HapticFeedback?.notificationOccurred(type);
 }
 
 function openBookById(id: number, sourceText: string) {
@@ -962,6 +1082,7 @@ function openBookById(id: number, sourceText: string) {
   if (!book) return;
   cleanupActiveReader(true);
   activeBook = book;
+  positionSaveErrorShown = false;
   if (sourceText.includes("Continue")) {
     void api<void>("/api/events", {
       method: "POST",
@@ -1003,6 +1124,7 @@ function renderReader(book: Book) {
       <button class="secondary reader-theme-button" id="readerThemeButton" type="button">Theme</button>
     </div>
     <div class="reader-stage" id="readerStage"></div>
+    ${renderToast()}
   `;
   document.querySelector("#backButton")?.addEventListener("click", () => {
     cleanupActiveReader(true);
@@ -1213,6 +1335,9 @@ async function savePosition(bookId: number, locator: string, percent: number) {
 function savePositionSafely(bookId: number, locator: string, percent: number) {
   void savePosition(bookId, locator, percent).catch((error) => {
     console.warn("Could not save reading position", error);
+    if (positionSaveErrorShown) return;
+    positionSaveErrorShown = true;
+    showToast("Could not save position", "error");
   });
 }
 

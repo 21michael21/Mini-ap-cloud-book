@@ -324,6 +324,19 @@ input:focus-visible {
   font-style: normal;
 }
 
+.continue-action {
+  align-self: flex-start;
+  margin-top: 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
 .format-badge {
   align-self: flex-start;
   margin-bottom: 9px;
@@ -1242,6 +1255,22 @@ mark {
   font-weight: 600;
   text-align: center;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
+}
+
+.toast--success {
+  border-color: var(--accent-border);
+  background: var(--button-bg);
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.24),
+    inset 0 0 0 1px var(--accent-soft);
+}
+
+.toast--error {
+  border-color: var(--danger-soft-text);
+  background: var(--button-bg);
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.24),
+    inset 0 0 0 1px rgba(224, 105, 107, 0.2);
 }
 
 .skel {
