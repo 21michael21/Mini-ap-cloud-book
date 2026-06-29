@@ -56,11 +56,22 @@
 
 :root {
   color-scheme: dark;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --radius-sm: 14px;
+  --radius: 16px;
   --bg: #0b0d12;
   --surface: #151821;
   --surface-2: #1c2030;
   --surface-3: #1a1f2e;
+  --hairline: #262b3a;
   --text: #edeff5;
+  --text-muted: #8b93a7;
   --muted: #8b93a7;
   --muted-2: #5c6479;
   --line: #262b3a;
@@ -69,9 +80,40 @@
   --accent-strong: #a5b2ff;
   --accent-press: #6b7be6;
   --danger: #e0696b;
+  --nav-bg: rgba(11, 13, 18, 0.92);
+  --hero-bg: linear-gradient(158deg, #1e2334 0%, #161a26 70%);
+  --hero-shine: linear-gradient(180deg, rgba(139, 155, 255, 0.07), transparent);
+  --focus-ring: rgba(139, 155, 255, 0.2);
+  --accent-soft: rgba(139, 155, 255, 0.16);
+  --accent-border: rgba(139, 155, 255, 0.3);
   font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+:root[data-theme="day"] {
+  color-scheme: light;
+  --bg: #f5f7fb;
+  --surface: #ffffff;
+  --surface-2: #eef1f8;
+  --surface-3: #f7f8fc;
+  --hairline: #d9deeb;
+  --text: #171b26;
+  --text-muted: #687086;
+  --muted: #687086;
+  --muted-2: #8c94a8;
+  --line: #d9deeb;
+  --line-2: #cbd2e3;
+  --accent: #6575f6;
+  --accent-strong: #4658e8;
+  --accent-press: #4e5fd6;
+  --danger: #bc4d58;
+  --nav-bg: rgba(245, 247, 251, 0.9);
+  --hero-bg: linear-gradient(158deg, #ffffff 0%, #eef1fb 72%);
+  --hero-shine: linear-gradient(180deg, rgba(101, 117, 246, 0.12), transparent);
+  --focus-ring: rgba(101, 117, 246, 0.18);
+  --accent-soft: rgba(101, 117, 246, 0.14);
+  --accent-border: rgba(101, 117, 246, 0.3);
 }
 
 * {
@@ -109,6 +151,9 @@ input:focus-visible {
 .app {
   min-height: 100vh;
   background: var(--bg);
+  transition:
+    background-color 180ms ease,
+    color 180ms ease;
 }
 
 .screen {
@@ -151,7 +196,7 @@ input:focus-visible {
 }
 
 .theme-toggle__active {
-  background: rgba(139, 155, 255, 0.18);
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
@@ -201,18 +246,29 @@ input:focus-visible {
   gap: 16px;
   padding: 16px;
   overflow: hidden;
-  border: 1px solid rgba(139, 155, 255, 0.3);
+  border: 1px solid var(--accent-border);
   border-radius: 18px;
-  background: linear-gradient(158deg, #1e2334 0%, #161a26 70%);
+  background: var(--hero-bg);
   color: inherit;
   text-align: left;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.continue-hero:active {
+  border-color: var(--accent);
+  transform: scale(0.98);
 }
 
 .continue-hero::before {
   position: absolute;
   inset: 0 0 50%;
   border-radius: 18px 18px 0 0;
-  background: linear-gradient(180deg, rgba(139, 155, 255, 0.07), transparent);
+  background: var(--hero-shine);
   content: "";
 }
 
@@ -338,6 +394,19 @@ input:focus-visible {
   -webkit-line-clamp: 3;
 }
 
+.cover-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 4px;
+  background: rgba(15, 18, 25, 0.7);
+}
+
+:root[data-theme="day"] .cover-progress {
+  background: rgba(255, 255, 255, 0.68);
+}
+
 .row-cover .cover-title,
 .sheet-cover .cover-title {
   display: none;
@@ -351,7 +420,10 @@ input:focus-visible {
   margin-right: -20px;
   margin-left: -20px;
   padding: 0 20px 2px;
+  scroll-snap-type: x mandatory;
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 }
 
 .recent-rail::-webkit-scrollbar,
@@ -370,6 +442,13 @@ input:focus-visible {
   color: inherit;
   text-align: left;
   scroll-snap-align: start;
+  transition: transform 160ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.recent-card:active {
+  transform: scale(0.98);
 }
 
 .recent-title {
@@ -402,6 +481,20 @@ input:focus-visible {
   border-radius: 999px;
   background: var(--surface);
   color: var(--text);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.folder-chip:active {
+  border-color: var(--accent);
+  background: var(--surface-2);
+  color: var(--accent);
+  transform: scale(0.98);
 }
 
 .folder-chip.active {
@@ -475,7 +568,7 @@ input:focus-visible {
 }
 
 .segment.active {
-  background: rgba(139, 155, 255, 0.16);
+  background: var(--accent-soft);
   color: var(--accent);
   font-weight: 600;
 }
@@ -500,7 +593,7 @@ input:focus-visible {
 .search-shell.is-focused {
   border-color: var(--accent);
   background: var(--surface-3);
-  box-shadow: 0 0 0 3px rgba(139, 155, 255, 0.2);
+  box-shadow: 0 0 0 3px var(--focus-ring);
   color: var(--accent);
 }
 
@@ -627,6 +720,11 @@ mark {
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+  transform-origin: left center;
+}
+
+.bar-fill {
+  animation: fillTo 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 .progress-0 {
@@ -767,6 +865,9 @@ mark {
   inset: 0;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(139, 155, 255, 0.22), transparent 68%);
+}
+
+.pulse-ring {
   animation: pulseRing 2.4s ease-in-out infinite;
 }
 
@@ -786,15 +887,31 @@ mark {
   line-height: 1.55;
 }
 
-.empty-state span {
+.empty-state > span {
   margin-top: 6px;
   color: var(--muted);
   font-size: 12px;
 }
 
-.empty-arrow {
-  margin-top: 22px;
-  color: var(--accent);
+.empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  margin-top: 26px;
+  padding: 0 22px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.empty-cta .arrow-bob {
+  display: inline-flex;
+}
+
+.arrow-bob {
   animation: arrowBob 1.8s ease-in-out infinite;
 }
 
@@ -841,7 +958,7 @@ mark {
   height: 84px;
   padding: 12px 18px 0;
   border-top: 1px solid var(--line);
-  background: rgba(11, 13, 18, 0.92);
+  background: var(--nav-bg);
   backdrop-filter: blur(12px);
 }
 
@@ -859,7 +976,7 @@ mark {
 }
 
 .nav button.active {
-  background: rgba(139, 155, 255, 0.14);
+  background: var(--accent-soft);
   color: var(--accent);
   font-weight: 600;
 }
@@ -1122,6 +1239,15 @@ foliate-view {
   }
 }
 
+@keyframes fillTo {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
 @keyframes glowBreath {
   0%,
   100% {
@@ -1202,13 +1328,19 @@ foliate-view {
 
 @media (prefers-reduced-motion: reduce) {
   *,
+  .bar-fill,
   .glow,
   .card-in,
   .sheet-up,
   .skel,
-  .empty-orbit__pulse,
-  .empty-arrow {
+  .pulse-ring,
+  .arrow-bob,
+  .empty-orbit__pulse {
     animation: none !important;
     transition: none !important;
+  }
+
+  .bar-fill {
+    transform: scaleX(1) !important;
   }
 }

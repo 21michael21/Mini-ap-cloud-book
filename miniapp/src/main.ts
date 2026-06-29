@@ -29,6 +29,7 @@ type Home = {
 type View = "home" | "library" | "reader";
 type LibraryScope = "inbox" | "all" | number;
 type SheetState = { kind: "move"; book: Book; targetFolderId: number | null } | null;
+type AppTheme = "day" | "night";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? window.location.origin;
 const appEl = document.querySelector<HTMLDivElement>("#app")!;
@@ -46,12 +47,14 @@ let activeSheet: SheetState = null;
 let isHomeLoading = false;
 let isLibraryLoading = false;
 let errorMessage: string | null = null;
+let appTheme: AppTheme = readAppTheme();
 let readerTheme: "light" | "dark" = "dark";
 
 function init() {
   tg?.ready?.();
   tg?.expand?.();
   document.body.classList.add("dark");
+  applyAppTheme();
   void loadHome();
 }
 
@@ -179,9 +182,9 @@ function renderTopbar(title: string): string {
   return `
     <header class="topbar">
       <div class="screen-title">${escapeHtml(title)}</div>
-      <button class="theme-toggle" id="themeButton" type="button" aria-label="Toggle reader theme">
-        <span>${icon("sun")}</span>
-        <span class="theme-toggle__active">${icon("moon")}</span>
+      <button class="theme-toggle" id="appThemeButton" type="button" aria-label="Toggle app theme" aria-pressed="${appTheme === "day"}">
+        <span class="${appTheme === "day" ? "theme-toggle__active" : ""}">${icon("sun")}</span>
+        <span class="${appTheme === "night" ? "theme-toggle__active" : ""}">${icon("moon")}</span>
       </button>
     </header>
   `;
@@ -243,13 +246,15 @@ function renderEmptyHome(): string {
   return `
     <div class="empty-state empty-state--home">
       <div class="empty-orbit">
-        <div class="empty-orbit__pulse"></div>
+        <div class="empty-orbit__pulse pulse-ring"></div>
         <div class="empty-icon">${icon("bookOpen")}</div>
       </div>
       <h2>Your library is empty</h2>
-      <p>Send an EPUB, FB2, TXT, or PDF to the bot. It will appear here automatically.</p>
-      <div class="empty-arrow">${icon("arrowDown")}</div>
-      <span>Use the Telegram attachment button below</span>
+      <p>Send a file to the bot to start your library.</p>
+      <div class="empty-cta">
+        <span>Send a file to the bot</span>
+        <span class="arrow-bob">${icon("arrowDown")}</span>
+      </div>
     </div>
   `;
 }
@@ -262,7 +267,7 @@ function renderContinueHero(book: Book): string {
         <span class="format-badge">${escapeHtml(book.format.toUpperCase())}</span>
         <strong>${escapeHtml(book.title)}</strong>
         <em>${escapeHtml(book.author ?? "Unknown author")}</em>
-        ${renderProgress(book, "Chapter progress")}
+        ${renderProgress(book, "Continue reading", continueProgressDetail(book))}
       </span>
     </button>
   `;
@@ -271,7 +276,7 @@ function renderContinueHero(book: Book): string {
 function renderRecentCard(book: Book): string {
   return `
     <button class="recent-card" type="button" data-open="${book.id}">
-      ${renderCover(book, "recent-cover")}
+      ${renderCover(book, "recent-cover", true)}
       <span class="recent-title">${escapeHtml(book.title)}</span>
       <span class="recent-meta">${escapeHtml(shortAuthor(book))} · ${progressLabel(book)}</span>
     </button>
@@ -414,26 +419,34 @@ function renderBookRow(book: Book, index: number): string {
   `;
 }
 
-function renderCover(book: Book, className: string): string {
+function renderCover(book: Book, className: string, withProgress = false): string {
   return `
     <span class="book-cover ${className} tone-${book.id % 5}">
       <span class="cover-stripes"></span>
       <span class="cover-spine"></span>
       <span class="cover-title">${escapeHtml(book.title)}</span>
+      ${withProgress ? renderCoverProgress(book) : ""}
     </span>
   `;
 }
 
-function renderProgress(book: Book, label: string): string {
+function renderProgress(book: Book, label: string, detail = progressDetail(book)): string {
   const percent = clamp(Math.round(book.progress_percent), 0, 100);
   return `
     <span class="progress-wrap" aria-label="${escapeHtml(label)}">
       <span class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">
-        <span class="progress-meter ${progressClass(percent)}"></span>
+        <span class="progress-meter bar-fill ${progressClass(percent)}"></span>
       </span>
-      <span class="progress-meta"><span>${book.too_large ? "Download original" : progressDetail(book)}</span><b>${progressLabel(book)}</b></span>
+      <span class="progress-meta"><span>${escapeHtml(book.too_large ? "Download original" : detail)}</span><b>${progressLabel(book)}</b></span>
     </span>
   `;
+}
+
+function renderCoverProgress(book: Book): string {
+  if (book.too_large) return "";
+  const percent = clamp(Math.round(book.progress_percent), 0, 100);
+  if (percent <= 0) return "";
+  return `<span class="cover-progress"><span class="progress-meter ${progressClass(percent)}"></span></span>`;
 }
 
 function renderNav(): string {
@@ -494,7 +507,7 @@ function renderError(message: string): string {
 }
 
 function bindShellControls() {
-  document.querySelector("#themeButton")?.addEventListener("click", toggleTheme);
+  document.querySelector("#appThemeButton")?.addEventListener("click", toggleAppTheme);
   document.querySelector("#homeNav")?.addEventListener("click", () => void loadHome());
   document.querySelector("#libraryNav")?.addEventListener("click", () => {
     selectedFolderId = "all";
@@ -644,12 +657,12 @@ function renderReader(book: Book) {
   appEl.innerHTML = `
     <div class="reader-toolbar">
       <button class="secondary" id="backButton" type="button">${icon("arrowLeft")}<span>Back</span></button>
-      <button class="secondary" id="themeButton" type="button">Theme</button>
+      <button class="secondary" id="readerThemeButton" type="button">Theme</button>
     </div>
     <div class="reader-stage" id="readerStage"></div>
   `;
   document.querySelector("#backButton")?.addEventListener("click", () => void loadHome());
-  document.querySelector("#themeButton")?.addEventListener("click", toggleTheme);
+  document.querySelector("#readerThemeButton")?.addEventListener("click", toggleReaderTheme);
 
   if (book.too_large) {
     document.querySelector("#readerStage")!.innerHTML =
@@ -698,7 +711,22 @@ async function savePosition(bookId: number, locator: string, percent: number) {
   });
 }
 
-function toggleTheme() {
+function toggleAppTheme() {
+  appTheme = appTheme === "night" ? "day" : "night";
+  window.localStorage.setItem("telegram-library-theme", appTheme);
+  applyAppTheme();
+  render();
+}
+
+function applyAppTheme() {
+  document.documentElement.dataset.theme = appTheme;
+}
+
+function readAppTheme(): AppTheme {
+  return window.localStorage.getItem("telegram-library-theme") === "day" ? "day" : "night";
+}
+
+function toggleReaderTheme() {
   readerTheme = readerTheme === "dark" ? "light" : "dark";
   document.body.classList.toggle("reader-light", readerTheme === "light");
 }
@@ -723,6 +751,12 @@ function progressLabel(book: Book): string {
 function progressDetail(book: Book): string {
   if (book.progress_percent <= 0) return "Not started";
   return "Reading progress";
+}
+
+function continueProgressDetail(book: Book): string {
+  if (book.too_large) return "Download original";
+  if (book.progress_percent <= 0) return "Ready to read";
+  return "Saved position";
 }
 
 function folderDotClass(index: number): string {
