@@ -37,7 +37,10 @@ type Home = {
 type View = "home" | "library" | "reader";
 type LibraryScope = "inbox" | "all" | number;
 type SheetState =
+  | { kind: "actions"; book: Book; error: string | null }
   | { kind: "move"; book: Book; targetFolderId: number | null }
+  | { kind: "edit"; book: Book; title: string; author: string; error: string | null }
+  | { kind: "remove"; book: Book; error: string | null }
   | { kind: "folder"; name: string; error: string | null }
   | null;
 type AppTheme = "day" | "night";
@@ -168,12 +171,84 @@ async function submitFolder(name: string) {
 }
 
 async function moveBookToFolder(book: Book, folderId: number | null) {
-  await api<Book>(`/api/books/${book.id}/move`, {
-    method: "PATCH",
-    body: JSON.stringify({ folder_id: folderId }),
-  });
-  activeSheet = null;
-  await loadBooks(selectedFolderId);
+  try {
+    await api<Book>(`/api/books/${book.id}/move`, {
+      method: "PATCH",
+      body: JSON.stringify({ folder_id: folderId }),
+    });
+    activeSheet = null;
+    await refreshCurrentView();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      activeSheet = { kind: "actions", book, error: "This item was not found. Refreshing your library." };
+      render();
+      window.setTimeout(() => void refreshCurrentView(), 700);
+      return;
+    }
+    activeSheet = { kind: "actions", book, error: readableError(error) };
+    render();
+  }
+}
+
+async function updateBookMetadata(book: Book, title: string, author: string) {
+  if (!title.trim()) {
+    activeSheet = { kind: "edit", book, title, author, error: "Title must not be empty." };
+    render();
+    return;
+  }
+  try {
+    await api<Book>(`/api/books/${book.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        title: title.trim(),
+        author: author.trim() || null,
+      }),
+    });
+    activeSheet = null;
+    await refreshCurrentView();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      activeSheet = { kind: "edit", book, title, author, error: "This item was not found. Refreshing your library." };
+      render();
+      window.setTimeout(() => void refreshCurrentView(), 700);
+      return;
+    }
+    activeSheet = { kind: "edit", book, title, author, error: readableError(error) };
+    render();
+  }
+}
+
+async function removeBookFromLibrary(book: Book) {
+  try {
+    await api<void>(`/api/books/${book.id}`, { method: "DELETE" });
+    if (activeBook?.id === book.id) {
+      cleanupActiveReader(true);
+      activeBook = null;
+    }
+    activeSheet = null;
+    await refreshCurrentView();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      activeSheet = { kind: "remove", book, error: "This item was already removed. Refreshing your library." };
+      render();
+      window.setTimeout(() => void refreshCurrentView(), 700);
+      return;
+    }
+    activeSheet = { kind: "remove", book, error: readableError(error) };
+    render();
+  }
+}
+
+async function refreshCurrentView() {
+  if (view === "library") {
+    await loadBooks(selectedFolderId);
+    return;
+  }
+  if (view === "reader") {
+    await loadBooks("all");
+    return;
+  }
+  await loadHome();
 }
 
 function filterBooks(books: Book[]): Book[] {
@@ -496,6 +571,9 @@ function renderNav(): string {
 function renderSheet(sheet: SheetState): string {
   if (!sheet) return "";
   if (sheet.kind === "folder") return renderFolderSheet(sheet);
+  if (sheet.kind === "actions") return renderActionsSheet(sheet);
+  if (sheet.kind === "edit") return renderEditBookSheet(sheet);
+  if (sheet.kind === "remove") return renderRemoveBookSheet(sheet);
   return `
     <div class="sheet-layer" id="sheetScrim">
       <section class="bottom-sheet sheet-up" aria-label="Move book">
@@ -525,6 +603,76 @@ function renderSheet(sheet: SheetState): string {
           <button class="folder-chip dashed" type="button" id="sheetNewFolder">${icon("plus")}<b>New folder</b></button>
         </div>
         <button class="primary-action" type="button" id="confirmMove">Move here</button>
+      </section>
+    </div>
+  `;
+}
+
+function renderSheetBook(book: Book): string {
+  return `
+    <div class="sheet-book">
+      ${renderCover(book, "sheet-cover")}
+      <div>
+        <h2>${escapeHtml(book.title)}</h2>
+        <p>${escapeHtml(book.author ?? "Unknown author")} · ${escapeHtml(book.format.toUpperCase())} · ${progressLabel(book)}</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderActionsSheet(sheet: Extract<SheetState, { kind: "actions" }>): string {
+  return `
+    <div class="sheet-layer" id="sheetScrim">
+      <section class="bottom-sheet sheet-up" aria-label="Book actions">
+        <div class="sheet-handle"></div>
+        ${renderSheetBook(sheet.book)}
+        ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
+        <div class="sheet-actions">
+          <button class="sheet-action" type="button" id="sheetRead">${icon("bookOpen")}<span>Read</span></button>
+          <button class="sheet-action" type="button" id="sheetMove">${icon("folderPlus")}<span>Move to folder</span></button>
+          <button class="sheet-action" type="button" id="sheetEdit">${icon("edit")}<span>Edit title/author</span></button>
+          <button class="sheet-action danger" type="button" id="sheetRemove">${icon("trash")}<span>Remove from library</span></button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderEditBookSheet(sheet: Extract<SheetState, { kind: "edit" }>): string {
+  return `
+    <div class="sheet-layer" id="sheetScrim">
+      <section class="bottom-sheet sheet-up" aria-label="Edit book">
+        <div class="sheet-handle"></div>
+        ${renderSheetBook(sheet.book)}
+        <h3>Edit title/author</h3>
+        <label class="folder-form">
+          <span>Title</span>
+          <input id="bookTitleInput" value="${escapeHtml(sheet.title)}" maxlength="240" autocomplete="off" />
+        </label>
+        <label class="folder-form">
+          <span>Author</span>
+          <input id="bookAuthorInput" value="${escapeHtml(sheet.author)}" maxlength="240" autocomplete="off" />
+        </label>
+        ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
+        <button class="primary-action" type="button" id="confirmBookEdit" ${sheet.title.trim() ? "" : "disabled"}>Save</button>
+      </section>
+    </div>
+  `;
+}
+
+function renderRemoveBookSheet(sheet: Extract<SheetState, { kind: "remove" }>): string {
+  return `
+    <div class="sheet-layer" id="sheetScrim">
+      <section class="bottom-sheet sheet-up" aria-label="Remove book">
+        <div class="sheet-handle"></div>
+        ${renderSheetBook(sheet.book)}
+        <h3>Remove this item from your library?</h3>
+        <p class="sheet-note">The original Telegram file is not deleted.</p>
+        ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
+        <div class="sheet-buttons">
+          <button class="ghost-button sheet-cancel" type="button" id="cancelRemove">Cancel</button>
+          <button class="danger-action" type="button" id="confirmRemove">Remove</button>
+        </div>
       </section>
     </div>
   `;
@@ -591,7 +739,7 @@ function bindBookButtons() {
       event.stopPropagation();
       const book = findBook(Number(button.dataset.rowMenu));
       if (!book) return;
-      activeSheet = { kind: "move", book, targetFolderId: book.folder_id };
+      activeSheet = { kind: "actions", book, error: null };
       render();
     });
   });
@@ -607,7 +755,7 @@ function bindBookButtons() {
         const book = findBook(id);
         if (!book) return;
         longPressed = true;
-        activeSheet = { kind: "move", book, targetFolderId: book.folder_id };
+        activeSheet = { kind: "actions", book, error: null };
         render();
       }, 520);
     });
@@ -621,7 +769,7 @@ function bindBookButtons() {
       event.preventDefault();
       const book = findBook(id);
       if (!book) return;
-      activeSheet = { kind: "move", book, targetFolderId: book.folder_id };
+      activeSheet = { kind: "actions", book, error: null };
       render();
     });
     row.addEventListener("click", () => {
@@ -689,6 +837,60 @@ function bindSheetControls() {
     document.querySelector("#confirmFolder")?.addEventListener("click", () => {
       if (!activeSheet || activeSheet.kind !== "folder") return;
       void submitFolder(activeSheet.name);
+    });
+    return;
+  }
+  if (activeSheet.kind === "actions") {
+    const book = activeSheet.book;
+    document.querySelector("#sheetRead")?.addEventListener("click", () => {
+      activeSheet = null;
+      openBookById(book.id, "Read");
+    });
+    document.querySelector("#sheetMove")?.addEventListener("click", () => {
+      activeSheet = { kind: "move", book, targetFolderId: book.folder_id };
+      render();
+    });
+    document.querySelector("#sheetEdit")?.addEventListener("click", () => {
+      activeSheet = { kind: "edit", book, title: book.title, author: book.author ?? "", error: null };
+      render();
+    });
+    document.querySelector("#sheetRemove")?.addEventListener("click", () => {
+      activeSheet = { kind: "remove", book, error: null };
+      render();
+    });
+    return;
+  }
+  if (activeSheet.kind === "edit") {
+    const titleInput = document.querySelector<HTMLInputElement>("#bookTitleInput");
+    const authorInput = document.querySelector<HTMLInputElement>("#bookAuthorInput");
+    const saveButton = document.querySelector<HTMLButtonElement>("#confirmBookEdit");
+    titleInput?.focus();
+    const syncEditSheet = () => {
+      if (!activeSheet || activeSheet.kind !== "edit") return;
+      activeSheet = {
+        ...activeSheet,
+        title: titleInput?.value ?? "",
+        author: authorInput?.value ?? "",
+        error: null,
+      };
+      if (saveButton) saveButton.disabled = !activeSheet.title.trim();
+    };
+    titleInput?.addEventListener("input", syncEditSheet);
+    authorInput?.addEventListener("input", syncEditSheet);
+    document.querySelector("#confirmBookEdit")?.addEventListener("click", () => {
+      if (!activeSheet || activeSheet.kind !== "edit") return;
+      void updateBookMetadata(activeSheet.book, activeSheet.title, activeSheet.author);
+    });
+    return;
+  }
+  if (activeSheet.kind === "remove") {
+    const book = activeSheet.book;
+    document.querySelector("#cancelRemove")?.addEventListener("click", () => {
+      activeSheet = { kind: "actions", book, error: null };
+      render();
+    });
+    document.querySelector("#confirmRemove")?.addEventListener("click", () => {
+      void removeBookFromLibrary(book);
     });
     return;
   }
@@ -1028,6 +1230,8 @@ function icon(name: string): string {
     download: `<svg ${attrs}><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>`,
     plus: `<svg ${attrs} width="13" height="13"><path d="M12 5v14M5 12h14"></path></svg>`,
     more: `<svg ${attrs}><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg>`,
+    edit: `<svg ${attrs}><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg>`,
+    trash: `<svg ${attrs}><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path><path d="M10 11v6M14 11v6"></path></svg>`,
   };
   return icons[name] ?? "";
 }

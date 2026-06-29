@@ -10,13 +10,14 @@ from urllib.parse import urlencode
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.config import Settings, get_settings
 from backend.app.db import Base, get_db
 from backend.app.main import app
-from backend.app.models import Book, Folder, User
+from backend.app.models import Book, Folder, ReadingPosition, User
+from backend.app.services import cache_path
 
 
 BOT_TOKEN = "test-token"
@@ -137,6 +138,12 @@ def test_user_cannot_read_or_move_another_users_book_or_folder(client: TestClien
     ids = seed_owner_data(client)
 
     read_other_book = client.get(f"/api/books/{ids['book_b']}", headers=auth_headers(1001))
+    update_other_book = client.patch(
+        f"/api/books/{ids['book_b']}",
+        json={"title": "Mine now"},
+        headers=auth_headers(1001),
+    )
+    delete_other_book = client.delete(f"/api/books/{ids['book_b']}", headers=auth_headers(1001))
     move_other_book = client.patch(
         f"/api/books/{ids['book_b']}/move",
         json={"folder_id": None},
@@ -150,9 +157,84 @@ def test_user_cannot_read_or_move_another_users_book_or_folder(client: TestClien
     )
 
     assert read_other_book.status_code == 404
+    assert update_other_book.status_code == 404
+    assert delete_other_book.status_code == 404
     assert move_other_book.status_code == 404
     assert list_other_folder.status_code == 404
     assert move_to_other_folder.status_code == 404
+
+
+def test_user_can_update_own_book_title_and_author(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+
+    response = client.patch(
+        f"/api/books/{ids['book_a']}",
+        json={"title": "  Clean Title  ", "author": "  New Author  "},
+        headers=auth_headers(1001),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["title"] == "Clean Title"
+    assert payload["author"] == "New Author"
+
+
+def test_update_book_empty_title_is_rejected(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+
+    response = client.patch(
+        f"/api/books/{ids['book_a']}",
+        json={"title": "   "},
+        headers=auth_headers(1001),
+    )
+
+    assert response.status_code == 422
+
+
+def test_update_book_empty_author_is_stored_as_null(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+
+    response = client.patch(
+        f"/api/books/{ids['book_a']}",
+        json={"author": "   "},
+        headers=auth_headers(1001),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["author"] is None
+
+
+def test_delete_book_removes_reading_position(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+    SessionLocal = client.app.state.testing_session_local
+    settings = client.app.dependency_overrides[get_settings]()
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.tg_user_id == 1001))
+        assert user is not None
+        book = db.get(Book, ids["book_a"])
+        assert book is not None
+        cached_file = cache_path(settings, book)
+        cached_file.parent.mkdir(parents=True, exist_ok=True)
+        cached_file.write_text("cached", encoding="utf-8")
+        db.add(ReadingPosition(book_id=ids["book_a"], user_id=user.id, locator="5", percent=50.0))
+        db.commit()
+
+    response = client.delete(f"/api/books/{ids['book_a']}", headers=auth_headers(1001))
+
+    assert response.status_code == 204
+    assert not cached_file.exists()
+    with SessionLocal() as db:
+        assert db.get(Book, ids["book_a"]) is None
+        assert db.scalar(select(ReadingPosition).where(ReadingPosition.book_id == ids["book_a"])) is None
+
+
+def test_delete_too_large_book_works(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+
+    response = client.delete(f"/api/books/{ids['too_large']}", headers=auth_headers(1001))
+
+    assert response.status_code == 204
+    assert client.get(f"/api/books/{ids['too_large']}", headers=auth_headers(1001)).status_code == 404
 
 
 @pytest.mark.parametrize(

@@ -39,6 +39,11 @@ class MoveBookIn(BaseModel):
     folder_id: int | None = None
 
 
+class BookUpdate(BaseModel):
+    title: str | None = None
+    author: str | None = None
+
+
 class ReadingPositionIn(BaseModel):
     locator: str = Field(min_length=1)
     percent: float = Field(ge=0, le=100)

@@ -1,4 +1,5 @@
 import mimetypes
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from backend.app.db import get_db
 from backend.app.models import Book, Folder, ReadingPosition, User
 from backend.app.schemas import (
     BookOut,
+    BookUpdate,
     EventIn,
     FolderCreate,
     FolderOut,
@@ -25,10 +27,11 @@ from backend.app.schemas import (
     ReadingPositionIn,
     ReadingPositionOut,
 )
-from backend.app.services import ensure_cached_file, log_event, owned_book_or_404, owned_folder_or_404
+from backend.app.services import cache_path, ensure_cached_file, log_event, owned_book_or_404, owned_folder_or_404
 
 
 mimetypes.add_type("font/woff2", ".woff2")
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Telegram Library API", version="0.1.0")
 settings = get_settings()
@@ -179,6 +182,54 @@ def list_books(
 def get_book(book_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)) -> BookOut:
     book = owned_book_or_404(db, user, book_id)
     return serialize_book(book)
+
+
+@app.patch("/api/books/{book_id}", response_model=BookOut)
+def update_book(
+    book_id: int,
+    payload: BookUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> BookOut:
+    book = owned_book_or_404(db, user, book_id)
+    if "title" in payload.model_fields_set:
+        title = (payload.title or "").strip()
+        if not title:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Title must not be empty")
+        book.title = title
+    if "author" in payload.model_fields_set:
+        author = (payload.author or "").strip()
+        book.author = author or None
+    log_event(
+        db,
+        user.id,
+        "book_metadata_updated",
+        book.id,
+        {"title": book.title, "author": book.author},
+    )
+    db.commit()
+    db.refresh(book)
+    return serialize_book(book)
+
+
+@app.delete("/api/books/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_book(
+    book_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    book = owned_book_or_404(db, user, book_id)
+    cached_path = cache_path(settings, book)
+    log_event(db, user.id, "book_removed", book.id, {"title": book.title})
+    db.flush()
+    db.delete(book)
+    db.commit()
+    try:
+        cached_path.unlink(missing_ok=True)
+    except OSError:
+        logger.exception("Could not delete cached file for removed book_id=%s", book_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.patch("/api/books/{book_id}/move", response_model=BookOut)
