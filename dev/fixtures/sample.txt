@@ -1,5 +1,11 @@
 Harness TXT
 
+Clean Mode TXT
+
+What this checks:
+- Russian punctuation: Привет, мир — кавычки «ёлочки» and long URLs stay readable.
+- A very long URL: https://example.com/really/long/path/that/should/not/break/the/mobile/reader/layout
+
 Paragraph 1. This plain text document proves the TXT reader restores scroll position.
 
 Paragraph 2. This plain text document proves the TXT reader restores scroll position.

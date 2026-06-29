@@ -11,6 +11,10 @@ FIXTURES = ROOT / "fixtures"
 def write_txt() -> None:
     (FIXTURES / "sample.txt").write_text(
         "Harness TXT\n\n"
+        "Clean Mode TXT\n\n"
+        "What this checks:\n"
+        "- Russian punctuation: Привет, мир — кавычки «ёлочки» and long URLs stay readable.\n"
+        "- A very long URL: https://example.com/really/long/path/that/should/not/break/the/mobile/reader/layout\n\n"
         + "\n\n".join(
             f"Paragraph {index}. This plain text document proves the TXT reader restores scroll position."
             for index in range(1, 80)
@@ -35,10 +39,12 @@ def write_fb2() -> None:
     <section>
       <title><p>Harness FB2</p></title>
       <p>This FB2 document proves the FictionBook reader renders visible text.</p>
+      <p><strong>Clean Mode FB2</strong> keeps Russian text readable: Привет, мир, «кавычки», длинные слова и ссылки.</p>
       {''.join(f'<p>First section paragraph {index} for scroll restoration.</p>' for index in range(1, 40))}
     </section>
     <section>
       <title><p>Harness FB2 Second Section</p></title>
+      <p>Clean Mode FB2 second section keeps semantic text after section switching.</p>
       {''.join(f'<p>Second section paragraph {index} for section restoration.</p>' for index in range(1, 40))}
     </section>
   </body>
@@ -109,6 +115,18 @@ def write_epub() -> None:
   <body>
     <h1>Harness EPUB</h1>
     <p>This EPUB document proves the EPUB reader renders visible text.</p>
+    <h2>Clean Mode EPUB</h2>
+    <p>Clean reading normalizes messy source markup while preserving readable order, Russian text: Привет, мир, «ёлочки», and long URLs like https://example.com/really/long/path/that/should/wrap/on/mobile/screens.</p>
+    <blockquote><p>A compact quote should get readable spacing without source CSS.</p></blockquote>
+    <ul>
+      <li>Lists should keep bullets.</li>
+      <li>Long words should wrap: supercalifragilisticexpialidocioussupercalifragilisticexpialidocious.</li>
+    </ul>
+    <table>
+      <thead><tr><th>Topic</th><th>Status</th></tr></thead>
+      <tbody><tr><td>Tables</td><td>Scrollable and readable</td></tr></tbody>
+    </table>
+    <img alt="Harness inline image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" />
     {''.join(f'<p>First section paragraph {index} for scroll restoration.</p>' for index in range(1, 45))}
   </body>
 </html>
@@ -124,6 +142,7 @@ def write_epub() -> None:
   </head>
   <body>
     <h1>Harness EPUB Second Section</h1>
+    <p>Clean Mode EPUB second section keeps semantic text after section switching.</p>
     {''.join(f'<p>Second section paragraph {index} for section restoration.</p>' for index in range(1, 45))}
   </body>
 </html>

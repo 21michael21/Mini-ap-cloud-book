@@ -142,7 +142,7 @@ async function verifyTextFormat(book: Book): Promise<HarnessResult> {
 
   return {
     format: book.format,
-    rendered: visibleText.includes("Harness") || restoredText.includes("Harness"),
+    rendered: hasCleanHarnessText(visibleText) || hasCleanHarnessText(restoredText),
     positionSaved:
       book.format === "txt"
         ? Boolean(txtLocator && txtLocator.scrollRatio > 0 && (persisted?.percent ?? 0) > 0)
@@ -152,6 +152,10 @@ async function verifyTextFormat(book: Book): Promise<HarnessResult> {
     locator: persisted?.locator ?? null,
     error: null,
   };
+}
+
+function hasCleanHarnessText(text: string): boolean {
+  return text.includes("Harness") && text.includes("Clean Mode");
 }
 
 async function verifyPdf(book: Book): Promise<HarnessResult> {

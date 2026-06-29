@@ -13,6 +13,8 @@ file_cache/*
 !file_cache/.gitkeep
 dev/*.sqlite3
 dev/file_cache/
+dev/private_reader_fixtures/*
+!dev/private_reader_fixtures/README.md
 miniapp/node_modules/
 miniapp/dist/
 miniapp/dist-harness/

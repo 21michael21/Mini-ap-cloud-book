@@ -105,6 +105,47 @@ const PDF_MIN_ZOOM = 0.75;
 const PDF_MAX_ZOOM = 3;
 const PDF_ZOOM_STEP = 0.25;
 const PDF_MAX_DPR = 2.5;
+const EMPTY_SECTION_MESSAGE = "This section has no readable text. Try next section.";
+const CLEAN_READER_TAGS = new Set([
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "p",
+  "br",
+  "blockquote",
+  "ul",
+  "ol",
+  "li",
+  "pre",
+  "code",
+  "table",
+  "thead",
+  "tbody",
+  "tr",
+  "th",
+  "td",
+  "img",
+  "a",
+]);
+const DROPPED_READER_TAGS = new Set([
+  "script",
+  "style",
+  "noscript",
+  "template",
+  "iframe",
+  "object",
+  "embed",
+  "form",
+  "input",
+  "button",
+  "select",
+  "textarea",
+  "svg",
+  "canvas",
+]);
 
 export function apiHeaders(initData: string): HeadersInit {
   return {
@@ -203,8 +244,14 @@ export async function openFoliateReader(
       () => options.onTap?.(),
       fontSizePx,
     );
-    const renderedText = iframe.contentDocument?.body?.innerText?.trim();
-    if (!renderedText) throw new Error("This document opened, but no readable text was found.");
+    const renderedText = iframe.contentDocument?.body?.innerText?.trim() || EMPTY_SECTION_MESSAGE;
+    warnReaderDiagnostics(
+      normalizedFormat ?? (isTxt ? "txt" : "epub"),
+      sections.length,
+      sectionIndex,
+      renderedText.length,
+      iframe.contentDocument?.images.length ?? 0,
+    );
     onVisibleText?.(renderedText);
     emitStatus();
     if (shouldSave) save();
@@ -507,23 +554,140 @@ async function renderSectionIframe(
   return iframe;
 }
 
-async function makeSafeSectionUrl(
-  section: FoliateBook["sections"][number],
-): Promise<{ src: string | null; srcdoc: string | null; text: string }> {
+async function makeSafeSectionUrl(section: FoliateBook["sections"][number]): Promise<{ src: string | null; srcdoc: string | null }> {
   const doc = section.createDocument ? await section.createDocument() : null;
   if (!doc) {
-    return { src: await section.load(), srcdoc: null, text: "" };
+    const source = await section.load();
+    const parsed = parseLoadedHtml(source);
+    if (parsed) {
+      return { src: null, srcdoc: makeCleanReaderHtml(parsed) };
+    }
+    return { src: source, srcdoc: null };
   }
-  const safeDoc = doc.cloneNode(true) as Document;
-  safeDoc.querySelectorAll("script, style").forEach((node) => node.remove());
-  safeDoc.querySelectorAll("[style]").forEach((node) => node.removeAttribute("style"));
-  const text = safeDoc.body?.innerText?.trim() ?? "";
-  const html = new XMLSerializer().serializeToString(safeDoc);
-  return {
-    src: null,
-    srcdoc: html,
-    text,
-  };
+  return { src: null, srcdoc: makeCleanReaderHtml(doc) };
+}
+
+function parseLoadedHtml(source: string): Document | null {
+  if (!source.trim().startsWith("<")) return null;
+  return new DOMParser().parseFromString(source, "text/html");
+}
+
+function makeCleanReaderHtml(sourceDoc: Document): string {
+  const cleanDoc = document.implementation.createHTMLDocument(sourceDoc.title || "Book section");
+  const lang =
+    sourceDoc.documentElement.getAttribute("lang") ??
+    sourceDoc.documentElement.getAttribute("xml:lang") ??
+    sourceDoc.body?.getAttribute("lang") ??
+    "ru";
+  cleanDoc.documentElement.lang = lang;
+  const dir = sourceDoc.documentElement.getAttribute("dir") ?? sourceDoc.body?.getAttribute("dir");
+  if (dir === "ltr" || dir === "rtl" || dir === "auto") cleanDoc.documentElement.dir = dir;
+
+  const charset = cleanDoc.createElement("meta");
+  charset.setAttribute("charset", "utf-8");
+  cleanDoc.head.append(charset);
+  const viewport = cleanDoc.createElement("meta");
+  viewport.name = "viewport";
+  viewport.content = "width=device-width, initial-scale=1";
+  cleanDoc.head.append(viewport);
+  const stylesheet = cleanDoc.createElement("link");
+  stylesheet.rel = "stylesheet";
+  stylesheet.href = "/reader-content.css";
+  stylesheet.dataset.readerContentCss = "true";
+  cleanDoc.head.append(stylesheet);
+
+  const article = cleanDoc.createElement("article");
+  article.className = "reader-article";
+  cleanDoc.body.append(article);
+  const sourceRoot = sourceDoc.body ?? sourceDoc.documentElement;
+  appendCleanChildren(sourceRoot, article, cleanDoc);
+  if (!article.textContent?.trim() && !article.querySelector("img")) {
+    const empty = cleanDoc.createElement("p");
+    empty.className = "reader-empty-section";
+    empty.textContent = EMPTY_SECTION_MESSAGE;
+    article.append(empty);
+  }
+  return `<!doctype html>${cleanDoc.documentElement.outerHTML}`;
+}
+
+function appendCleanChildren(source: Node, target: Node, cleanDoc: Document): void {
+  Array.from(source.childNodes).forEach((child) => appendCleanNode(child, target, cleanDoc));
+}
+
+function appendCleanNode(source: Node, target: Node, cleanDoc: Document): void {
+  if (source.nodeType === Node.TEXT_NODE) {
+    if (source.textContent) target.appendChild(cleanDoc.createTextNode(source.textContent));
+    return;
+  }
+  if (source.nodeType !== Node.ELEMENT_NODE || !(source instanceof Element)) return;
+
+  const tagName = source.tagName.toLowerCase();
+  if (DROPPED_READER_TAGS.has(tagName)) return;
+  if (!CLEAN_READER_TAGS.has(tagName)) {
+    appendCleanChildren(source, target, cleanDoc);
+    return;
+  }
+
+  if (tagName === "img" && !isSafeReaderUrl(source.getAttribute("src"))) return;
+  const element = cleanDoc.createElement(tagName);
+  copyCleanReaderAttributes(source, element, tagName);
+  target.appendChild(element);
+  if (tagName !== "img" && tagName !== "br") appendCleanChildren(source, element, cleanDoc);
+}
+
+function copyCleanReaderAttributes(source: Element, target: Element, tagName: string): void {
+  if (tagName === "a") {
+    const href = source.getAttribute("href");
+    if (isSafeReaderUrl(href)) {
+      target.setAttribute("href", href!);
+      target.setAttribute("rel", "noopener noreferrer");
+      target.setAttribute("target", "_blank");
+    }
+  }
+  if (tagName === "img") {
+    const src = source.getAttribute("src");
+    if (isSafeReaderUrl(src)) target.setAttribute("src", src!);
+    for (const attr of ["alt", "title", "width", "height", "loading"]) copyPlainAttribute(source, target, attr);
+    return;
+  }
+  if (tagName === "td" || tagName === "th") {
+    for (const attr of ["colspan", "rowspan", "scope"]) copyPlainAttribute(source, target, attr);
+  }
+  if (tagName === "ol") {
+    for (const attr of ["start", "type"]) copyPlainAttribute(source, target, attr);
+  }
+  if (tagName === "li") copyPlainAttribute(source, target, "value");
+  copyPlainAttribute(source, target, "title");
+}
+
+function copyPlainAttribute(source: Element, target: Element, name: string): void {
+  const value = source.getAttribute(name);
+  if (value && !/[<>]/.test(value)) target.setAttribute(name, value);
+}
+
+function isSafeReaderUrl(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized.startsWith("javascript:") || normalized.startsWith("vbscript:")) return false;
+  if (normalized.startsWith("data:")) return normalized.startsWith("data:image/");
+  return true;
+}
+
+function warnReaderDiagnostics(
+  format: string,
+  sectionCount: number,
+  sectionIndex: number,
+  textLength: number,
+  imageCount: number,
+): void {
+  if (!import.meta.env.DEV) return;
+  console.warn("[reader diagnostic]", {
+    format,
+    sectionCount,
+    sectionIndex,
+    textLength,
+    imageCount,
+  });
 }
 
 async function responseMessage(response: Response): Promise<string> {
