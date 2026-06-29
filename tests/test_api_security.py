@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from backend.app.config import Settings, get_settings
 from backend.app.db import Base, get_db
 from backend.app.main import app
-from backend.app.models import Book, Folder, ReadingPosition, User
+from backend.app.models import Book, Folder, Note, ReadingPosition, User
 from backend.app.services import cache_path
 
 
@@ -226,6 +226,82 @@ def test_delete_book_removes_reading_position(client: TestClient) -> None:
     with SessionLocal() as db:
         assert db.get(Book, ids["book_a"]) is None
         assert db.scalar(select(ReadingPosition).where(ReadingPosition.book_id == ids["book_a"])) is None
+
+
+def test_user_can_crud_own_notes(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+    headers = auth_headers(1001)
+
+    created = client.post(
+        f"/api/books/{ids['book_a']}/notes",
+        json={"locator": '{"type":"text","sectionIndex":1,"scrollRatio":0.2}', "percent": 42.5, "note_text": "  key bit  "},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    note = created.json()
+    assert note["note_text"] == "key bit"
+    assert note["percent"] == 42.5
+
+    listed = client.get(f"/api/books/{ids['book_a']}/notes", headers=headers)
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == [note["id"]]
+
+    updated = client.patch(f"/api/notes/{note['id']}", json={"note_text": "updated"}, headers=headers)
+    assert updated.status_code == 200
+    assert updated.json()["note_text"] == "updated"
+
+    deleted = client.delete(f"/api/notes/{note['id']}", headers=headers)
+    assert deleted.status_code == 204
+    assert client.get(f"/api/books/{ids['book_a']}/notes", headers=headers).json() == []
+
+
+def test_user_cannot_access_notes_for_another_users_book(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+    SessionLocal = client.app.state.testing_session_local
+    with SessionLocal() as db:
+        owner = db.scalar(select(User).where(User.tg_user_id == 2002))
+        assert owner is not None
+        note = Note(user_id=owner.id, book_id=ids["book_b"], locator="1", percent=10, note_text="private")
+        db.add(note)
+        db.commit()
+        note_id = note.id
+
+    assert client.get(f"/api/books/{ids['book_b']}/notes", headers=auth_headers(1001)).status_code == 404
+    assert client.post(
+        f"/api/books/{ids['book_b']}/notes",
+        json={"locator": "1", "percent": 10, "note_text": None},
+        headers=auth_headers(1001),
+    ).status_code == 404
+    assert client.patch(f"/api/notes/{note_id}", json={"note_text": "peek"}, headers=auth_headers(1001)).status_code == 404
+    assert client.delete(f"/api/notes/{note_id}", headers=auth_headers(1001)).status_code == 404
+
+
+def test_delete_book_cascades_notes(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+    SessionLocal = client.app.state.testing_session_local
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.tg_user_id == 1001))
+        assert user is not None
+        db.add(Note(user_id=user.id, book_id=ids["book_a"], locator="5", percent=50.0, note_text=None))
+        db.commit()
+
+    response = client.delete(f"/api/books/{ids['book_a']}", headers=auth_headers(1001))
+
+    assert response.status_code == 204
+    with SessionLocal() as db:
+        assert db.scalar(select(Note).where(Note.book_id == ids["book_a"])) is None
+
+
+def test_note_percent_must_be_valid(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+
+    response = client.post(
+        f"/api/books/{ids['book_a']}/notes",
+        json={"locator": "1", "percent": 101, "note_text": None},
+        headers=auth_headers(1001),
+    )
+
+    assert response.status_code == 422
 
 
 def test_delete_too_large_book_works(client: TestClient) -> None:

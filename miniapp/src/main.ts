@@ -28,6 +28,16 @@ type Folder = {
   sort_order: number;
 };
 
+type Note = {
+  id: number;
+  book_id: number;
+  locator: string;
+  percent: number;
+  note_text: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 type Home = {
   continue_book: Book | null;
   recent: Book[];
@@ -42,9 +52,11 @@ type SheetState =
   | { kind: "edit"; book: Book; title: string; author: string; error: string | null }
   | { kind: "remove"; book: Book; error: string | null }
   | { kind: "folder"; name: string; error: string | null }
+  | { kind: "note"; book: Book; locator: string; percent: number; noteText: string; error: string | null }
+  | { kind: "notes"; book: Book; notes: Note[]; isLoading: boolean; error: string | null }
   | null;
 type AppTheme = "day" | "night";
-type PendingAction = "folder" | "move" | "edit" | "remove" | null;
+type PendingAction = "folder" | "move" | "edit" | "remove" | "note" | null;
 type ToastKind = "info" | "success" | "error";
 
 class ApiError extends Error {
@@ -78,6 +90,8 @@ let readerTheme: "light" | "dark" = "dark";
 let activeReaderSave: (() => void) | null = null;
 let activeReaderDestroy: (() => void) | null = null;
 let activeTextReader: TextReaderController | null = null;
+let activePdfReader: PdfReaderController | null = null;
+let activeReaderRestoreLocator: string | null = null;
 let readerToolbarVisible = true;
 let readerFontSizePx = readReaderFontSize();
 let pdfZoom = readPdfZoom();
@@ -297,6 +311,68 @@ async function removeBookFromLibrary(book: Book) {
   }
 }
 
+async function createNote(book: Book, locator: string, percent: number, noteText: string) {
+  if (pendingAction) return;
+  pendingAction = "note";
+  updateActiveSheet();
+  try {
+    await api<Note>(`/api/books/${book.id}/notes`, {
+      method: "POST",
+      body: JSON.stringify({
+        locator,
+        percent,
+        note_text: noteText.trim() || null,
+      }),
+    });
+    hapticNotification("success");
+    showToast(noteText.trim() ? "Note saved" : "Bookmark saved", "success");
+    closeSheet();
+  } catch (error) {
+    hapticNotification("error");
+    showToast("Could not save bookmark", "error");
+    pendingAction = null;
+    activeSheet = { kind: "note", book, locator, percent, noteText, error: readableError(error) };
+    updateActiveSheet();
+  } finally {
+    pendingAction = null;
+  }
+}
+
+async function showNotesForBook(book: Book) {
+  hapticSelection();
+  presentSheet({ kind: "notes", book, notes: [], isLoading: true, error: null });
+  try {
+    const notes = await api<Note[]>(`/api/books/${book.id}/notes`);
+    if (activeSheet?.kind !== "notes" || activeSheet.book.id !== book.id) return;
+    presentSheet({ kind: "notes", book, notes, isLoading: false, error: null });
+  } catch (error) {
+    hapticNotification("error");
+    if (activeSheet?.kind !== "notes" || activeSheet.book.id !== book.id) return;
+    presentSheet({ kind: "notes", book, notes: [], isLoading: false, error: readableError(error) });
+  }
+}
+
+async function deleteNote(note: Note) {
+  if (pendingAction) return;
+  pendingAction = "note";
+  updateActiveSheet();
+  try {
+    await api<void>(`/api/notes/${note.id}`, { method: "DELETE" });
+    hapticNotification("success");
+    showToast("Bookmark removed", "success");
+    if (activeSheet?.kind === "notes") {
+      activeSheet = { ...activeSheet, notes: activeSheet.notes.filter((item) => item.id !== note.id) };
+    }
+    updateActiveSheet();
+  } catch (error) {
+    hapticNotification("error");
+    showToast("Could not remove bookmark", "error");
+  } finally {
+    pendingAction = null;
+    updateActiveSheet();
+  }
+}
+
 async function refreshCurrentView() {
   if (view === "library") {
     await loadBooks(selectedFolderId);
@@ -335,7 +411,7 @@ function render() {
       ${errorMessage ? renderError(errorMessage) : view === "home" ? renderHome() : renderLibrary()}
     </main>
     ${renderNav()}
-    ${activeSheet ? renderSheet(activeSheet) : ""}
+    ${renderActiveSheet()}
     ${renderToast()}
   `;
 
@@ -648,6 +724,8 @@ function renderSheet(sheet: SheetState): string {
   if (sheet.kind === "actions") return renderActionsSheet(sheet);
   if (sheet.kind === "edit") return renderEditBookSheet(sheet);
   if (sheet.kind === "remove") return renderRemoveBookSheet(sheet);
+  if (sheet.kind === "note") return renderNoteSheet(sheet);
+  if (sheet.kind === "notes") return renderNotesSheet(sheet);
   return `
     <div class="sheet-layer" id="sheetScrim">
       <section class="bottom-sheet sheet-up" aria-label="Move book">
@@ -682,6 +760,10 @@ function renderSheet(sheet: SheetState): string {
   `;
 }
 
+function renderActiveSheet(): string {
+  return activeSheet ? renderSheet(activeSheet) : "";
+}
+
 function renderSheetBook(book: Book): string {
   return `
     <div class="sheet-book">
@@ -703,11 +785,64 @@ function renderActionsSheet(sheet: Extract<SheetState, { kind: "actions" }>): st
         ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
         <div class="sheet-actions">
           <button class="sheet-action" type="button" id="sheetRead">${icon("bookOpen")}<span>Read</span></button>
+          <button class="sheet-action" type="button" id="sheetNotes">${icon("bookmark")}<span>Notes</span></button>
           <button class="sheet-action" type="button" id="sheetMove">${icon("folderPlus")}<span>Move to folder</span></button>
           <button class="sheet-action" type="button" id="sheetEdit" aria-label="Rename. Edit title and author">${icon("edit")}<span class="sheet-action-copy"><strong>Rename</strong><small>Edit title and author</small></span></button>
           <button class="sheet-action danger" type="button" id="sheetRemove">${icon("trash")}<span>Remove from library</span></button>
         </div>
       </section>
+    </div>
+  `;
+}
+
+function renderNoteSheet(sheet: Extract<SheetState, { kind: "note" }>): string {
+  return `
+    <div class="sheet-layer" id="sheetScrim">
+      <section class="bottom-sheet sheet-up" aria-label="Save bookmark">
+        <div class="sheet-handle"></div>
+        ${renderSheetBook(sheet.book)}
+        <h3>Save bookmark</h3>
+        <p class="sheet-note">Saved at ${formatPercent(sheet.percent)}. Add a short note if you want.</p>
+        <label class="folder-form">
+          <span>Note optional</span>
+          <textarea id="noteTextInput" maxlength="1200" rows="4" placeholder="What should future you remember?">${escapeHtml(sheet.noteText)}</textarea>
+        </label>
+        ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
+        <button class="primary-action" type="button" id="confirmNote" ${pendingAction === "note" ? "disabled" : ""}>${pendingAction === "note" ? "Saving..." : "Save"}</button>
+      </section>
+    </div>
+  `;
+}
+
+function renderNotesSheet(sheet: Extract<SheetState, { kind: "notes" }>): string {
+  return `
+    <div class="sheet-layer" id="sheetScrim">
+      <section class="bottom-sheet sheet-up notes-sheet" aria-label="Book notes">
+        <div class="sheet-handle"></div>
+        ${renderSheetBook(sheet.book)}
+        <h3>Notes</h3>
+        <p class="sheet-note">Bookmarks and notes saved for this book.</p>
+        ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
+        ${
+          sheet.isLoading
+            ? `<div class="notes-list"><div class="skel skel-line"></div><div class="skel skel-line short"></div></div>`
+            : sheet.notes.length
+              ? `<div class="notes-list">${sheet.notes.map(renderNoteRow).join("")}</div>`
+              : `<div class="empty-mini">No notes yet. Open the reader and tap Mark.</div>`
+        }
+      </section>
+    </div>
+  `;
+}
+
+function renderNoteRow(note: Note): string {
+  return `
+    <div class="note-row">
+      <button class="note-open" type="button" data-open-note="${note.id}">
+        <strong>${escapeHtml(note.note_text?.trim() || "Bookmark")}</strong>
+        <span>${formatPercent(note.percent)} · ${formatNoteDate(note.created_at)}</span>
+      </button>
+      <button class="note-delete" type="button" data-delete-note="${note.id}" aria-label="Delete bookmark">${icon("trash")}</button>
     </div>
   `;
 }
@@ -912,8 +1047,7 @@ function bindSheetControls() {
   if (!activeSheet) return;
   document.querySelector("#sheetScrim")?.addEventListener("click", (event) => {
     if (event.target === event.currentTarget) {
-      activeSheet = null;
-      render();
+      closeSheet();
     }
   });
   if (activeSheet.kind === "folder") {
@@ -933,23 +1067,59 @@ function bindSheetControls() {
   if (activeSheet.kind === "actions") {
     const book = activeSheet.book;
     document.querySelector("#sheetRead")?.addEventListener("click", () => {
-      activeSheet = null;
+      closeSheet();
       openBookById(book.id, "Read");
+    });
+    document.querySelector("#sheetNotes")?.addEventListener("click", () => {
+      void showNotesForBook(book);
     });
     document.querySelector("#sheetMove")?.addEventListener("click", () => {
       hapticSelection();
       activeSheet = { kind: "move", book, targetFolderId: book.folder_id };
-      render();
+      updateActiveSheet();
     });
     document.querySelector("#sheetEdit")?.addEventListener("click", () => {
       hapticSelection();
       activeSheet = { kind: "edit", book, title: book.title, author: book.author ?? "", error: null };
-      render();
+      updateActiveSheet();
     });
     document.querySelector("#sheetRemove")?.addEventListener("click", () => {
       hapticSelection();
       activeSheet = { kind: "remove", book, error: null };
-      render();
+      updateActiveSheet();
+    });
+    return;
+  }
+  if (activeSheet.kind === "note") {
+    const input = document.querySelector<HTMLTextAreaElement>("#noteTextInput");
+    input?.focus();
+    input?.addEventListener("input", () => {
+      if (!activeSheet || activeSheet.kind !== "note") return;
+      activeSheet = { ...activeSheet, noteText: input.value, error: null };
+    });
+    document.querySelector("#confirmNote")?.addEventListener("click", () => {
+      if (!activeSheet || activeSheet.kind !== "note") return;
+      void createNote(activeSheet.book, activeSheet.locator, activeSheet.percent, activeSheet.noteText);
+    });
+    return;
+  }
+  if (activeSheet.kind === "notes") {
+    document.querySelectorAll<HTMLElement>("[data-open-note]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (!activeSheet || activeSheet.kind !== "notes") return;
+        const note = activeSheet.notes.find((item) => item.id === Number(button.dataset.openNote));
+        if (!note) return;
+        openNote(activeSheet.book, note);
+      });
+    });
+    document.querySelectorAll<HTMLElement>("[data-delete-note]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (!activeSheet || activeSheet.kind !== "notes") return;
+        const note = activeSheet.notes.find((item) => item.id === Number(button.dataset.deleteNote));
+        if (!note) return;
+        void deleteNote(note);
+      });
     });
     return;
   }
@@ -980,7 +1150,7 @@ function bindSheetControls() {
     const book = activeSheet.book;
     document.querySelector("#cancelRemove")?.addEventListener("click", () => {
       activeSheet = { kind: "actions", book, error: null };
-      render();
+      updateActiveSheet();
     });
     document.querySelector("#confirmRemove")?.addEventListener("click", () => {
       void removeBookFromLibrary(book);
@@ -993,7 +1163,7 @@ function bindSheetControls() {
       const raw = button.dataset.sheetFolder!;
       activeSheet = { ...activeSheet, targetFolderId: raw === "inbox" ? null : Number(raw) };
       hapticSelection();
-      render();
+      updateActiveSheet();
     });
   });
   document.querySelector("#sheetNewFolder")?.addEventListener("click", () => void createFolder());
@@ -1006,6 +1176,32 @@ function bindSheetControls() {
 function clearSearch() {
   searchQuery = "";
   booksState = filterBooks(allBooksState);
+  render();
+}
+
+function presentSheet(sheet: NonNullable<SheetState>) {
+  activeSheet = sheet;
+  updateActiveSheet();
+}
+
+function closeSheet() {
+  activeSheet = null;
+  if (view === "reader") {
+    document.querySelector(".sheet-layer")?.remove();
+    return;
+  }
+  render();
+}
+
+function updateActiveSheet() {
+  if (view === "reader") {
+    document.querySelector(".sheet-layer")?.remove();
+    if (activeSheet) {
+      appEl.insertAdjacentHTML("beforeend", renderActiveSheet());
+      bindSheetControls();
+    }
+    return;
+  }
   render();
 }
 
@@ -1077,6 +1273,30 @@ function hapticNotification(type: "success" | "error" | "warning") {
   tg?.HapticFeedback?.notificationOccurred(type);
 }
 
+function openBookmarkSheet(book: Book) {
+  const position = activeTextReader?.getCurrentPosition() ?? activePdfReader?.getCurrentPosition() ?? null;
+  if (!position?.locator) {
+    hapticNotification("warning");
+    showToast("Wait until the reader finishes opening", "error");
+    return;
+  }
+  hapticImpact();
+  presentSheet({
+    kind: "note",
+    book,
+    locator: position.locator,
+    percent: position.percent,
+    noteText: "",
+    error: null,
+  });
+}
+
+function openNote(book: Book, note: Note) {
+  activeReaderRestoreLocator = note.locator;
+  closeSheet();
+  openBookById(book.id, "Read");
+}
+
 function openBookById(id: number, sourceText: string) {
   const book = findBook(id);
   if (!book) return;
@@ -1103,11 +1323,13 @@ function renderReader(book: Book) {
   cleanupActiveReader(false);
   readerToolbarVisible = true;
   activeTextReader = null;
+  activePdfReader = null;
   const isTextReader = book.format !== "pdf";
   appEl.className = "reader";
   appEl.innerHTML = `
     <div class="reader-toolbar" id="readerToolbar">
       <button class="secondary" id="backButton" type="button" aria-label="Back">${icon("arrowLeft")}<span>Back</span></button>
+      <button class="secondary reader-mark-button" id="readerMark" type="button" aria-label="Save bookmark">${icon("bookmark")}<span>Mark</span></button>
       ${
         isTextReader
           ? `<button class="secondary reader-font-button" id="readerFontDown" type="button" aria-label="Decrease font size">A-</button>`
@@ -1141,6 +1363,7 @@ function renderReader(book: Book) {
   }, { passive: true });
   document.querySelector("#readerFontDown")?.addEventListener("click", () => changeReaderFontSize(-1));
   document.querySelector("#readerFontUp")?.addEventListener("click", () => changeReaderFontSize(1));
+  document.querySelector("#readerMark")?.addEventListener("click", () => openBookmarkSheet(book));
   updateReaderToolbarVisibility();
 
   if (book.too_large) {
@@ -1160,11 +1383,13 @@ async function renderTextBook(book: Book) {
   renderReaderLoading(stage);
   try {
     const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
+    const restoreLocator = activeReaderRestoreLocator ?? pos?.locator ?? null;
+    activeReaderRestoreLocator = null;
     const file = await fetchBookFile(API_BASE, initData(), book);
     const controller = await openFoliateReader(
       stage,
       file,
-      pos?.locator ?? null,
+      restoreLocator,
       (position) => {
         savePositionSafely(book.id, position.locator, position.percent);
       },
@@ -1188,12 +1413,14 @@ async function renderPdf(book: Book) {
   renderReaderLoading(stage);
   try {
     const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
+    const restoreLocator = activeReaderRestoreLocator ?? pos?.locator ?? null;
+    activeReaderRestoreLocator = null;
     const file = await fetchBookFile(API_BASE, initData(), book);
     let pdfReader: PdfReaderController | null = null;
     pdfReader = await openPdfReader(
       stage,
       file,
-      pos?.locator ?? null,
+      restoreLocator,
       (position) => {
         savePositionSafely(book.id, position.locator, position.percent);
       },
@@ -1230,6 +1457,7 @@ function bindTextReaderControls(controller: TextReaderController) {
 
 function bindPdfReaderControls(controller: PdfReaderController) {
   activeTextReader = null;
+  activePdfReader = controller;
   activeReaderSave = null;
   activeReaderDestroy = null;
   updateReaderControls(`${controller.getPageNumber()} / ${controller.pageCount}`, controller.getPageNumber() > 1, controller.getPageNumber() < controller.pageCount);
@@ -1255,6 +1483,7 @@ function cleanupActiveReader(save: boolean) {
   activeReaderSave = null;
   activeReaderDestroy = null;
   activeTextReader = null;
+  activePdfReader = null;
 }
 
 function renderReaderLoading(stage: HTMLElement) {
@@ -1422,6 +1651,16 @@ function progressLabel(book: Book): string {
   return percent > 0 ? `${percent}%` : "New";
 }
 
+function formatPercent(percent: number): string {
+  return `${Math.round(clamp(percent, 0, 100))}%`;
+}
+
+function formatNoteDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "saved";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 function fallbackTitleFromFileName(fileName: string): string {
   const withoutExtension = fileName.replace(/\.[^.]+$/, "");
   return withoutExtension.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim() || fileName;
@@ -1498,6 +1737,7 @@ function icon(name: string): string {
     alert: `<svg ${attrs}><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 4.4 2.8 17.4A2 2 0 0 0 4.5 20h15a2 2 0 0 0 1.7-2.6L13.7 4.4a2 2 0 0 0-3.4 0z"></path></svg>`,
     download: `<svg ${attrs}><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>`,
     plus: `<svg ${attrs} width="13" height="13"><path d="M12 5v14M5 12h14"></path></svg>`,
+    bookmark: `<svg ${attrs}><path d="M6 4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18l-6-4-6 4z"></path></svg>`,
     more: `<svg ${attrs}><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg>`,
     edit: `<svg ${attrs}><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg>`,
     trash: `<svg ${attrs}><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path><path d="M10 11v6M14 11v6"></path></svg>`,

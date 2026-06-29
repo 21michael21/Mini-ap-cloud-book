@@ -30,6 +30,7 @@ class User(Base):
 
     books: Mapped[list["Book"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     folders: Mapped[list["Folder"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    notes: Mapped[list["Note"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class Folder(Base):
@@ -82,6 +83,7 @@ class Book(Base):
     reading_pos: Mapped["ReadingPosition | None"] = relationship(
         back_populates="book", cascade="all, delete-orphan"
     )
+    notes: Mapped[list["Note"]] = relationship(back_populates="book", cascade="all, delete-orphan")
 
 
 class ReadingPosition(Base):
@@ -100,6 +102,30 @@ class ReadingPosition(Base):
     )
 
     book: Mapped[Book] = relationship(back_populates="reading_pos")
+
+
+class Note(Base):
+    __tablename__ = "notes"
+    __table_args__ = (
+        Index("ix_notes_user_book_created", "user_id", "book_id", "created_at"),
+        Index("ix_notes_book_percent", "book_id", "percent"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="CASCADE"), nullable=False)
+    locator: Mapped[str] = mapped_column(Text, nullable=False)
+    percent: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    note_text: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    user: Mapped[User] = relationship(back_populates="notes")
+    book: Mapped[Book] = relationship(back_populates="notes")
 
 
 class Event(Base):

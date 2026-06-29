@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.config import Settings
-from backend.app.models import Book, Event, Folder, User
+from backend.app.models import Book, Event, Folder, Note, User
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,13 @@ def owned_folder_or_404(db: Session, user: User, folder_id: int) -> Folder:
     if not folder:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
     return folder
+
+
+def owned_note_or_404(db: Session, user: User, note_id: int) -> Note:
+    note = db.scalar(select(Note).where(Note.id == note_id, Note.user_id == user.id))
+    if not note:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+    return note
 
 
 def cache_path(settings: Settings, book: Book) -> Path:

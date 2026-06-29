@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from backend.app.auth import current_user
 from backend.app.config import Settings, get_settings
 from backend.app.db import get_db
-from backend.app.models import Book, Folder, ReadingPosition, User
+from backend.app.models import Book, Folder, Note, ReadingPosition, User
 from backend.app.schemas import (
     BookOut,
     BookUpdate,
@@ -24,10 +24,20 @@ from backend.app.schemas import (
     FolderUpdate,
     HomeOut,
     MoveBookIn,
+    NoteIn,
+    NoteOut,
+    NoteUpdate,
     ReadingPositionIn,
     ReadingPositionOut,
 )
-from backend.app.services import cache_path, ensure_cached_file, log_event, owned_book_or_404, owned_folder_or_404
+from backend.app.services import (
+    cache_path,
+    ensure_cached_file,
+    log_event,
+    owned_book_or_404,
+    owned_folder_or_404,
+    owned_note_or_404,
+)
 
 
 mimetypes.add_type("font/woff2", ".woff2")
@@ -361,6 +371,74 @@ def upsert_position(
     db.commit()
     db.refresh(pos)
     return pos
+
+
+@app.get("/api/books/{book_id}/notes", response_model=list[NoteOut])
+def list_notes(
+    book_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> list[Note]:
+    owned_book_or_404(db, user, book_id)
+    return db.scalars(
+        select(Note)
+        .where(Note.book_id == book_id, Note.user_id == user.id)
+        .order_by(Note.created_at.desc(), Note.id.desc())
+    ).all()
+
+
+@app.post("/api/books/{book_id}/notes", response_model=NoteOut, status_code=status.HTTP_201_CREATED)
+def create_note(
+    book_id: int,
+    payload: NoteIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> Note:
+    book = owned_book_or_404(db, user, book_id)
+    note_text = payload.note_text.strip() if payload.note_text else None
+    note = Note(
+        user_id=user.id,
+        book_id=book.id,
+        locator=payload.locator,
+        percent=payload.percent,
+        note_text=note_text or None,
+    )
+    db.add(note)
+    db.flush()
+    log_event(db, user.id, "note_created", book.id, {"note_id": note.id, "percent": note.percent})
+    db.commit()
+    db.refresh(note)
+    return note
+
+
+@app.patch("/api/notes/{note_id}", response_model=NoteOut)
+def update_note(
+    note_id: int,
+    payload: NoteUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> Note:
+    note = owned_note_or_404(db, user, note_id)
+    note.note_text = payload.note_text.strip() if payload.note_text else None
+    note.updated_at = datetime.now(timezone.utc)
+    log_event(db, user.id, "note_updated", note.book_id, {"note_id": note.id})
+    db.commit()
+    db.refresh(note)
+    return note
+
+
+@app.delete("/api/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_note(
+    note_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> Response:
+    note = owned_note_or_404(db, user, note_id)
+    book_id = note.book_id
+    log_event(db, user.id, "note_deleted", book_id, {"note_id": note.id})
+    db.delete(note)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.post("/api/events", status_code=status.HTTP_204_NO_CONTENT)

@@ -58,6 +58,28 @@ class ReadingPositionOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class NoteIn(BaseModel):
+    locator: str = Field(min_length=1)
+    percent: float = Field(ge=0, le=100)
+    note_text: str | None = None
+
+
+class NoteUpdate(BaseModel):
+    note_text: str | None = None
+
+
+class NoteOut(BaseModel):
+    id: int
+    book_id: int
+    locator: str
+    percent: float
+    note_text: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class EventIn(BaseModel):
     type: str = Field(min_length=1, max_length=80)
     book_id: int | None = None

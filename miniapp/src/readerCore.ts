@@ -33,6 +33,7 @@ export type TextReaderController = {
   nextSection: () => Promise<void>;
   setFontSize: (fontSizePx: number) => void;
   saveNow: () => void;
+  getCurrentPosition: () => Position;
   destroy: () => void;
   getSectionIndex: () => number;
   getScrollRatio: () => number;
@@ -55,6 +56,7 @@ export type PdfReaderController = {
   nextPage: () => Promise<void>;
   zoomOut: () => Promise<void>;
   zoomIn: () => Promise<void>;
+  getCurrentPosition: () => Position;
 };
 
 export type PdfReaderOptions = {
@@ -146,8 +148,7 @@ export async function openFoliateReader(
   let isSwitchingSection = false;
   let fontSizePx = options.fontSizePx ?? 18;
 
-  const save = () => {
-    if (destroyed) return;
+  const currentPosition = (): Position => {
     const currentRatio = getIframeScrollRatio(iframe);
     scrollRatio = currentRatio;
     const percent = isTxt
@@ -156,7 +157,13 @@ export async function openFoliateReader(
     const locator = isTxt
       ? JSON.stringify({ type: "txt", scrollRatio: currentRatio } satisfies TxtLocator)
       : JSON.stringify({ type: "text", sectionIndex, scrollRatio: currentRatio } satisfies TextLocator);
-    onPosition({ locator, percent });
+    return { locator, percent };
+  };
+
+  const save = () => {
+    if (destroyed) return;
+    const position = currentPosition();
+    onPosition(position);
     emitStatus();
   };
 
@@ -227,6 +234,7 @@ export async function openFoliateReader(
       applyIframeFontSize(iframe, fontSizePx);
     },
     saveNow: save,
+    getCurrentPosition: currentPosition,
     destroy: () => {
       destroyed = true;
       window.clearTimeout(scrollTimer);
@@ -316,6 +324,10 @@ export async function openPdfReader(
     nextPage: () => renderPage(requestedPage + 1),
     zoomOut: () => setZoom(zoom - 0.15),
     zoomIn: () => setZoom(zoom + 0.15),
+    getCurrentPosition: () => ({
+      locator: String(pageNumber),
+      percent: (pageNumber / pdf.numPages) * 100,
+    }),
   };
 }
 

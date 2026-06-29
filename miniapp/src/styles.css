@@ -1143,7 +1143,8 @@ mark {
   font-size: 12px;
 }
 
-.folder-form input {
+.folder-form input,
+.folder-form textarea {
   min-height: 46px;
   padding: 0 13px;
   border: 1px solid var(--line);
@@ -1153,7 +1154,14 @@ mark {
   font: inherit;
 }
 
-.folder-form input:focus {
+.folder-form textarea {
+  min-height: 104px;
+  padding: 12px 13px;
+  resize: vertical;
+}
+
+.folder-form input:focus,
+.folder-form textarea:focus {
   border-color: var(--accent);
   outline: none;
 }
@@ -1222,6 +1230,61 @@ mark {
 }
 
 .sheet-action.danger svg {
+  color: var(--danger-soft-text);
+}
+
+.notes-sheet {
+  max-height: min(82vh, 680px);
+  overflow: auto;
+}
+
+.notes-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 0 4px 8px;
+}
+
+.note-row {
+  display: grid;
+  grid-template-columns: 1fr 44px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.note-open,
+.note-delete {
+  border: 1px solid var(--button-border);
+  border-radius: 13px;
+  background: var(--button-bg);
+  color: var(--button-text);
+}
+
+.note-open {
+  display: grid;
+  gap: 3px;
+  min-height: 56px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.note-open strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-open span {
+  color: var(--button-muted-text);
+  font-size: 12px;
+}
+
+.note-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--danger-soft-text);
 }
 
@@ -1466,6 +1529,14 @@ body:not(.reader-light) .reader {
 
 .reader-theme-button {
   padding: 0 9px;
+}
+
+.reader-mark-button {
+  padding: 0 8px;
+}
+
+.reader-mark-button span {
+  display: none;
 }
 
 .reader-toolbar #backButton span {
