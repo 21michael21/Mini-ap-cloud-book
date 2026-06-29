@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -103,6 +103,23 @@ async def start(message: Message) -> None:
     await message.answer(
         "Send me an EPUB, FB2, TXT, or PDF file and I will add it to your Telegram Library.",
         reply_markup=open_library_keyboard(),
+    )
+
+
+@dp.message(Command("version"))
+async def version(message: Message) -> None:
+    await message.answer(
+        "\n".join(
+            [
+                "Telegram Library",
+                f"service: bot",
+                f"commit: {settings.git_commit or 'unknown'}",
+                f"built_at: {settings.build_time or 'unknown'}",
+                f"environment: {settings.app_env or 'unknown'}",
+                f"webapp: {settings.webapp_url}",
+                f"backend: {settings.backend_public_url}",
+            ]
+        )
     )
 
 

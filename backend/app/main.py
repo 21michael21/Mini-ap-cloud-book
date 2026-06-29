@@ -106,9 +106,25 @@ def books_query(user: User) -> Select[tuple[Book]]:
     return select(Book).where(Book.user_id == user.id)
 
 
+def version_payload(settings: Settings, service: str = "backend") -> dict[str, str]:
+    return {
+        "status": "ok",
+        "app": "telegram-library",
+        "commit": settings.git_commit or "unknown",
+        "built_at": settings.build_time or "unknown",
+        "environment": settings.app_env or "unknown",
+        "service": service,
+    }
+
+
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health(settings: Settings = Depends(get_settings)) -> dict[str, str]:
+    return version_payload(settings)
+
+
+@app.get("/api/version")
+def version(settings: Settings = Depends(get_settings)) -> dict[str, str]:
+    return version_payload(settings)
 
 
 @app.get("/api/home", response_model=HomeOut)

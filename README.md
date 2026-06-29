@@ -169,6 +169,40 @@ Server layout:
 
 Backend and bot use the same Docker image. The backend joins the existing `interview-base_default` Docker network so the existing Caddy container can reverse proxy to `telegram-library-backend:8000`.
 
+### VDS Verification Before Phone Testing
+
+Run this before opening the Mini App on your phone:
+
+```bash
+ssh root@89.124.84.4
+cd /opt/telegram-library
+git log --oneline -1 || true
+docker compose ps
+curl -fsS https://telegram-library.89.124.84.4.sslip.io/health
+curl -fsS https://telegram-library.89.124.84.4.sslip.io/api/version
+```
+
+Or from the project directory on the server:
+
+```bash
+./scripts/vds_verify.sh
+```
+
+Expected health/version shape:
+
+```json
+{
+  "status": "ok",
+  "app": "telegram-library",
+  "commit": "bb20d92...",
+  "built_at": "2026-06-29T18:00:00Z",
+  "environment": "production",
+  "service": "backend"
+}
+```
+
+If `commit` or `built_at` is `unknown`, the image was built without the Docker build args. The app can still run, but you cannot confirm the deployed commit from your phone.
+
 ## Telegram Client E2E Checklist
 
 Run this in the real Telegram mobile client after deploy:

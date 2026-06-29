@@ -14,6 +14,9 @@ def normalize_database_url(database_url: str) -> str:
 
 
 class Settings(BaseSettings):
+    app_env: str = "development"
+    git_commit: str = "unknown"
+    build_time: str = "unknown"
     bot_token: str = ""
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/telegram_library"
     webapp_url: str = "http://localhost:5173"
