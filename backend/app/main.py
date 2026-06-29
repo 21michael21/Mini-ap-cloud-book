@@ -55,9 +55,9 @@ async def add_security_headers(request, call_next):
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' https://telegram.org https://cdn.jsdelivr.net; "
-        "style-src 'self' https://fonts.googleapis.com; "
+        "style-src 'self'; "
         "img-src 'self' data: blob:; "
-        "font-src 'self' data: https://fonts.gstatic.com; "
+        "font-src 'self' data:; "
         f"connect-src {connect_src}; "
         "worker-src 'self' blob: https://cdn.jsdelivr.net; "
         "frame-src blob: data:; "

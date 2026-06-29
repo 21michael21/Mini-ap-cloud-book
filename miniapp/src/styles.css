@@ -1,3 +1,59 @@
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-500.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-600.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-700.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Literata";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/literata-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Literata";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/literata-500.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Literata";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/literata-600.woff2") format("woff2");
+}
+
 :root {
   color-scheme: dark;
   --bg: #0b0d12;
@@ -274,6 +330,7 @@ input:focus-visible {
   overflow: hidden;
   color: rgba(237, 239, 245, 0.92);
   font-family: "Literata", Georgia, serif;
+  font-optical-sizing: auto;
   font-size: 12px;
   line-height: 1.28;
   text-align: left;
@@ -358,11 +415,31 @@ input:focus-visible {
   color: var(--muted);
 }
 
-.folder-chip span {
+.folder-dot {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: var(--dot, var(--accent));
+  background: var(--accent);
+}
+
+.dot-accent {
+  background: var(--accent);
+}
+
+.dot-warm {
+  background: #e0a35a;
+}
+
+.dot-pass {
+  background: #62c28f;
+}
+
+.dot-info {
+  background: #6fb7d6;
+}
+
+.dot-lilac {
+  background: #c684d8;
 }
 
 .folder-chip b {
@@ -538,18 +615,102 @@ mark {
   height: 4px;
   overflow: hidden;
   border-radius: 999px;
-  background: #0f1219;
+  background: var(--surface-2);
 }
 
 .continue-copy .progress-track {
   height: 6px;
 }
 
-.progress-fill {
+.progress-meter {
   display: block;
   height: 100%;
-  border-radius: inherit;
+  border-radius: 999px;
   background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+}
+
+.progress-0 {
+  width: 0%;
+}
+
+.progress-5 {
+  width: 5%;
+}
+
+.progress-10 {
+  width: 10%;
+}
+
+.progress-15 {
+  width: 15%;
+}
+
+.progress-20 {
+  width: 20%;
+}
+
+.progress-25 {
+  width: 25%;
+}
+
+.progress-30 {
+  width: 30%;
+}
+
+.progress-35 {
+  width: 35%;
+}
+
+.progress-40 {
+  width: 40%;
+}
+
+.progress-45 {
+  width: 45%;
+}
+
+.progress-50 {
+  width: 50%;
+}
+
+.progress-55 {
+  width: 55%;
+}
+
+.progress-60 {
+  width: 60%;
+}
+
+.progress-65 {
+  width: 65%;
+}
+
+.progress-70 {
+  width: 70%;
+}
+
+.progress-75 {
+  width: 75%;
+}
+
+.progress-80 {
+  width: 80%;
+}
+
+.progress-85 {
+  width: 85%;
+}
+
+.progress-90 {
+  width: 90%;
+}
+
+.progress-95 {
+  width: 95%;
+}
+
+.progress-100 {
+  width: 100%;
 }
 
 .progress-meta {
@@ -917,11 +1078,39 @@ foliate-view {
 }
 
 .card-in {
-  animation: cardIn 440ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: cardIn 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.delay-0 {
+  animation-delay: 0ms;
+}
+
+.delay-1 {
+  animation-delay: 35ms;
+}
+
+.delay-2 {
+  animation-delay: 70ms;
+}
+
+.delay-3 {
+  animation-delay: 105ms;
+}
+
+.delay-4 {
+  animation-delay: 140ms;
+}
+
+.delay-5 {
+  animation-delay: 175ms;
+}
+
+.delay-6 {
+  animation-delay: 210ms;
 }
 
 .sheet-up {
-  animation: sheetUp 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: sheetUp 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 @keyframes shimmer {

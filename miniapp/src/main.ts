@@ -382,14 +382,13 @@ function renderFolderChips(interactive: boolean): string {
   const chipTabIndex = interactive ? "" : `tabindex="0"`;
   const chips = [
     `<button class="folder-chip ${selectedFolderId === "inbox" ? "active" : ""}" type="button" data-folder="inbox" ${chipTabIndex}>
-      <span style="--dot:#8B9BFF"></span><b>Inbox</b><small>${allBooksState.filter((book) => book.folder_id === null).length}</small>
+      <span class="folder-dot dot-accent"></span><b>Inbox</b><small>${allBooksState.filter((book) => book.folder_id === null).length}</small>
     </button>`,
     ...foldersState.map((folder, index) => {
       const count = allBooksState.filter((book) => book.folder_id === folder.id).length;
-      const colors = ["#E0A35A", "#62C28F", "#6FB7D6", "#C684D8"];
       return `
         <button class="folder-chip ${selectedFolderId === folder.id ? "active" : ""}" type="button" data-folder="${folder.id}" ${chipTabIndex}>
-          <span style="--dot:${colors[index % colors.length]}"></span><b>${escapeHtml(folder.name)}</b><small>${count}</small>
+          <span class="folder-dot ${folderDotClass(index)}"></span><b>${escapeHtml(folder.name)}</b><small>${count}</small>
         </button>
       `;
     }),
@@ -399,7 +398,7 @@ function renderFolderChips(interactive: boolean): string {
 
 function renderBookRow(book: Book, index: number): string {
   return `
-    <article class="book-row card-in" style="animation-delay:${40 + index * 70}ms" data-book-id="${book.id}">
+    <article class="book-row card-in ${delayClass(index)}" data-book-id="${book.id}">
       ${renderCover(book, "row-cover")}
       <div class="row-body">
         <div class="row-badges">
@@ -429,7 +428,9 @@ function renderProgress(book: Book, label: string): string {
   const percent = clamp(Math.round(book.progress_percent), 0, 100);
   return `
     <span class="progress-wrap" aria-label="${escapeHtml(label)}">
-      <span class="progress-track"><span class="progress-fill" style="width:${percent}%"></span></span>
+      <span class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">
+        <span class="progress-meter ${progressClass(percent)}"></span>
+      </span>
       <span class="progress-meta"><span>${book.too_large ? "Download original" : progressDetail(book)}</span><b>${progressLabel(book)}</b></span>
     </span>
   `;
@@ -462,14 +463,13 @@ function renderSheet(sheet: SheetState): string {
         <p class="sheet-note">Choose a destination for "${escapeHtml(sheet.book.title)}".</p>
         <div class="chip-row sheet-chips">
           <button class="folder-chip ${sheet.targetFolderId === null ? "active" : ""}" type="button" data-sheet-folder="inbox">
-            <span style="--dot:#8B9BFF"></span><b>Inbox</b><small>${allBooksState.filter((book) => book.folder_id === null).length}</small>
+            <span class="folder-dot dot-accent"></span><b>Inbox</b><small>${allBooksState.filter((book) => book.folder_id === null).length}</small>
           </button>
           ${foldersState
             .map((folder, index) => {
-              const colors = ["#E0A35A", "#62C28F", "#6FB7D6", "#C684D8"];
               return `
                 <button class="folder-chip ${sheet.targetFolderId === folder.id ? "active" : ""}" type="button" data-sheet-folder="${folder.id}">
-                  <span style="--dot:${colors[index % colors.length]}"></span><b>${escapeHtml(folder.name)}</b><small>${allBooksState.filter((book) => book.folder_id === folder.id).length}</small>
+                  <span class="folder-dot ${folderDotClass(index)}"></span><b>${escapeHtml(folder.name)}</b><small>${allBooksState.filter((book) => book.folder_id === folder.id).length}</small>
                 </button>
               `;
             })
@@ -723,6 +723,18 @@ function progressLabel(book: Book): string {
 function progressDetail(book: Book): string {
   if (book.progress_percent <= 0) return "Not started";
   return "Reading progress";
+}
+
+function folderDotClass(index: number): string {
+  return ["dot-warm", "dot-pass", "dot-info", "dot-lilac"][index % 4];
+}
+
+function delayClass(index: number): string {
+  return `delay-${clamp(index, 0, 6)}`;
+}
+
+function progressClass(percent: number): string {
+  return `progress-${Math.round(clamp(percent, 0, 100) / 5) * 5}`;
 }
 
 function shortAuthor(book: Book): string {
