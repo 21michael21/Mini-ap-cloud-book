@@ -169,6 +169,57 @@ Server layout:
 
 Backend and bot use the same Docker image. The backend joins the existing `interview-base_default` Docker network so the existing Caddy container can reverse proxy to `telegram-library-backend:8000`.
 
+### Safe VDS Deploy On Small Disk
+
+The current VDS has about 10 GB of disk. Treat disk as a deployment risk: Docker builds, dangling images, build cache, JSON logs, and downloaded book files can fill the server.
+
+Before deploying, check disk usage:
+
+```bash
+ssh root@89.124.84.4
+cd /opt/telegram-library
+./scripts/vds_disk_report.sh
+```
+
+Deploy with the guarded script:
+
+```bash
+cd /opt/telegram-library
+./scripts/vds_deploy_safe.sh
+```
+
+Expected output includes:
+
+```text
+== pre-build disk guard ==
+Free disk is OK: ...
+== docker compose build ==
+== docker compose up ==
+== health ==
+{"status":"ok", ...}
+== api version ==
+{"status":"ok", ...}
+```
+
+Rules for this small server:
+
+- Never run `docker system prune --volumes`.
+- Do not delete named Docker volumes unless you are intentionally deleting data.
+- Do not delete the Postgres volume.
+- Do not delete `./file_cache` unless explicitly asked; it contains cached user files.
+- Safe cleanup is limited to dangling images and old build cache: `docker image prune -f` and `docker builder prune -f --filter "until=24h"`.
+- The deploy script requires at least 2.5 GB free before Docker build and aborts if safe cleanup cannot reach that.
+
+For a 10 GB server, keep file cache capped in `.env`:
+
+```text
+FILE_CACHE_MAX_BYTES=268435456
+```
+
+`536870912` is the recommended maximum for this VPS size. The backend already respects `FILE_CACHE_MAX_BYTES` via the file cache cleanup path, so do not increase it casually.
+
+Rollback note: after safe pruning, the previous Docker image may no longer be available locally. Test `/health` and `/api/version` immediately after deploy. If rollback is needed, deploy the previous Git commit again rather than relying on a local old image.
+
 ### VDS Verification Before Phone Testing
 
 Run this before opening the Mini App on your phone:

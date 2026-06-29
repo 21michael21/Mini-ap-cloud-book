@@ -3,6 +3,11 @@ services:
     image: postgres:16
     container_name: telegram-library-postgres
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-telegram_library}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -23,6 +28,11 @@ services:
     image: telegram-library-app:latest
     container_name: telegram-library-backend
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     env_file:
       - .env
     environment:
@@ -43,6 +53,11 @@ services:
     image: telegram-library-app:latest
     container_name: telegram-library-bot
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     command: ./scripts/railway_bot_start.sh
     env_file:
       - .env
