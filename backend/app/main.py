@@ -1,3 +1,4 @@
+import mimetypes
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +26,8 @@ from backend.app.schemas import (
 )
 from backend.app.services import ensure_cached_file, log_event, owned_book_or_404, owned_folder_or_404
 
+
+mimetypes.add_type("font/woff2", ".woff2")
 
 app = FastAPI(title="Telegram Library API", version="0.1.0")
 app.add_middleware(
