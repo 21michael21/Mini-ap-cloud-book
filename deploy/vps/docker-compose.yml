@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: telegram-library-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-telegram_library}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-telegram_library}
+    volumes:
+      - telegram_library_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-telegram_library} -d ${POSTGRES_DB:-telegram_library}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - telegram-library
+
+  backend:
+    build:
+      context: .
+    image: telegram-library-app:latest
+    container_name: telegram-library-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-telegram_library}:${POSTGRES_PASSWORD}@telegram-library-postgres:5432/${POSTGRES_DB:-telegram_library}
+      FILE_CACHE_DIR: /data/file_cache
+    volumes:
+      - ./file_cache:/data/file_cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      telegram-library:
+      interview-base_default:
+        aliases:
+          - telegram-library-backend
+
+  bot:
+    image: telegram-library-app:latest
+    container_name: telegram-library-bot
+    restart: unless-stopped
+    command: ./scripts/railway_bot_start.sh
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-telegram_library}:${POSTGRES_PASSWORD}@telegram-library-postgres:5432/${POSTGRES_DB:-telegram_library}
+      FILE_CACHE_DIR: /data/file_cache
+    volumes:
+      - ./file_cache:/data/file_cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - telegram-library
+
+networks:
+  telegram-library:
+  interview-base_default:
+    external: true
+
+volumes:
+  telegram_library_pgdata:

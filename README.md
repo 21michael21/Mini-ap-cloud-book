@@ -145,9 +145,29 @@ If you create services from the GitHub repo in the Railway UI, create/link Postg
 
 After deploy, open the backend public URL in a browser. It should load the Mini App shell over HTTPS. The bot registers a Telegram menu button named `Library` on startup and still sends an `Open Library` Web App button after file uploads.
 
+## VDS Deploy
+
+The VDS deployment uses Docker Compose v2 on the server and the existing Caddy container from `/opt/interview-base`.
+
+Public Mini App URL:
+
+```text
+https://telegram-library.89.124.84.4.sslip.io
+```
+
+Server layout:
+
+```text
+/opt/telegram-library/docker-compose.yml
+/opt/telegram-library/.env
+/opt/telegram-library/file_cache/
+```
+
+Backend and bot use the same Docker image. The backend joins the existing `interview-base_default` Docker network so the existing Caddy container can reverse proxy to `telegram-library-backend:8000`.
+
 ## Telegram Client E2E Checklist
 
-Run this in the real Telegram mobile client after Railway deploy:
+Run this in the real Telegram mobile client after deploy:
 
 1. Open the bot chat and send a small EPUB file.
    Expected: the bot replies `Added to Inbox: ...` with an `Open Library` button.

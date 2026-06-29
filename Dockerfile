@@ -1,12 +1,20 @@
+FROM node:22-slim AS miniapp-build
+
+WORKDIR /app/miniapp
+
+COPY miniapp/package*.json ./
+COPY miniapp/scripts ./scripts
+RUN npm ci
+
+COPY miniapp ./
+RUN npm run build
+
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends nodejs npm \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -20,10 +28,6 @@ RUN chmod +x scripts/railway_*.sh \
     && python -m pip install --upgrade pip \
     && python -m pip install -e .
 
-COPY miniapp/package*.json ./miniapp/
-RUN cd miniapp && npm ci
-
-COPY miniapp ./miniapp
-RUN cd miniapp && npm run build
+COPY --from=miniapp-build /app/miniapp/dist ./miniapp/dist
 
 CMD ["./scripts/railway_backend_start.sh"]

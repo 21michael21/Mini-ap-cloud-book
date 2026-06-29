@@ -1,0 +1,5 @@
+telegram-library.89.124.84.4.sslip.io {
+  encode gzip zstd
+
+  reverse_proxy telegram-library-backend:8000
+}
