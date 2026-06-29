@@ -30,19 +30,24 @@ from backend.app.services import ensure_cached_file, log_event, owned_book_or_40
 mimetypes.add_type("font/woff2", ".woff2")
 
 app = FastAPI(title="Telegram Library API", version="0.1.0")
+settings = get_settings()
+cors_allowed_origins = list(
+    dict.fromkeys(
+        origin.rstrip("/")
+        for origin in [settings.webapp_url, settings.backend_public_url]
+        if origin
+    )
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_allowed_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-@app.middleware("http")
-async def add_security_headers(request, call_next):
-    response = await call_next(request)
-    settings = get_settings()
+def content_security_policy(settings: Settings) -> str:
     connect_src = " ".join(
         origin
         for origin in [
@@ -53,21 +58,28 @@ async def add_security_headers(request, call_next):
         ]
         if origin
     )
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Referrer-Policy"] = "no-referrer"
-    response.headers["Content-Security-Policy"] = (
+    return (
         "default-src 'self'; "
-        "script-src 'self' https://telegram.org https://cdn.jsdelivr.net; "
+        "script-src 'self' https://telegram.org; "
         "style-src 'self'; "
         "img-src 'self' data: blob:; "
         "font-src 'self' data:; "
         f"connect-src {connect_src}; "
-        "worker-src 'self' blob: https://cdn.jsdelivr.net; "
+        "worker-src 'self' blob:; "
         "frame-src blob: data:; "
         "object-src 'none'; "
         "base-uri 'none'; "
         "frame-ancestors 'self' https://web.telegram.org;"
     )
+
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    settings = get_settings()
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = content_security_policy(settings)
     return response
 
 

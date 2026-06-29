@@ -3,19 +3,35 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const unsafeSandbox = "'allow-same-origin allow-scripts'";
+const safeSandbox = "'allow-same-origin'";
 const files = [
-  resolve(root, "node_modules/foliate-js/paginator.js"),
-  resolve(root, "node_modules/foliate-js/fixed-layout.js"),
+  {
+    label: "paginator",
+    path: resolve(root, "node_modules/foliate-js/paginator.js"),
+  },
+  {
+    label: "fixed-layout",
+    path: resolve(root, "node_modules/foliate-js/fixed-layout.js"),
+  },
 ];
 
 for (const file of files) {
-  let source = readFileSync(file, "utf8");
-  source = source.replaceAll("'allow-same-origin allow-scripts'", "'allow-same-origin'");
-  source = source.replaceAll(
+  const source = readFileSync(file.path, "utf8");
+  const replacementCount = source.split(unsafeSandbox).length - 1;
+  if (replacementCount < 1) {
+    throw new Error(
+      `foliate-js sandbox patch failed for ${file.label}: expected to replace ${unsafeSandbox} at least once`,
+    );
+  }
+
+  let patched = source.replaceAll(unsafeSandbox, safeSandbox);
+  patched = patched.replaceAll(
     "// `allow-scripts` is needed for events because of WebKit bug\n",
     "// Book content iframes must not execute embedded scripts.\n",
   );
-  writeFileSync(file, source);
+  writeFileSync(file.path, patched);
+  console.log(`foliate-js ${file.label} sandbox patched: ${replacementCount} replacement(s)`);
 }
 
 console.log("foliate-js iframe sandbox patched: allow-scripts removed");

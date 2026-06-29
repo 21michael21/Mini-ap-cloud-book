@@ -4,18 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "node scripts/patch-foliate-sandbox.mjs",
+    "postinstall": "node scripts/patch-foliate-sandbox.mjs && node scripts/check-foliate-sandbox.mjs",
+    "check:foliate-sandbox": "node scripts/check-foliate-sandbox.mjs",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
     "build:harness": "tsc && VERIFY_READER=1 vite build --outDir dist-harness",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
-    "foliate-js": "^1.0.1",
-    "pdfjs-dist": "^6.1.200"
+    "foliate-js": "1.0.1",
+    "pdfjs-dist": "6.1.200"
   },
   "devDependencies": {
     "typescript": "^5.5.4",
-    "vite": "^5.4.0"
+    "vite": "8.1.0"
   }
 }

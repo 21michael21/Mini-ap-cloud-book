@@ -62,13 +62,13 @@ def get_or_create_user(db: Session, tg_user_id: int) -> User:
 
 
 def current_user(
-    x_telegram_init_data: str = Header(..., alias="X-Telegram-Init-Data"),
+    x_telegram_init_data: str | None = Header(None, alias="X-Telegram-Init-Data"),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> User:
     try:
         identity = validate_init_data(
-            x_telegram_init_data,
+            x_telegram_init_data or "",
             settings.bot_token,
             settings.initdata_max_age_seconds,
         )

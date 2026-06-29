@@ -1,4 +1,5 @@
 import * as pdfjs from "pdfjs-dist";
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
 
 export type Position = {
   locator: string;
@@ -30,8 +31,7 @@ type FoliateBook = PlainTextBook & {
   }>;
 };
 
-pdfjs.GlobalWorkerOptions.workerSrc =
-  "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.1.200/build/pdf.worker.mjs";
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 export function apiHeaders(initData: string): HeadersInit {
   return {

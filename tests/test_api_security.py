@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import time
+from collections.abc import Iterator
+from pathlib import Path
+from urllib.parse import urlencode
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from backend.app.config import Settings, get_settings
+from backend.app.db import Base, get_db
+from backend.app.main import app
+from backend.app.models import Book, Folder, User
+
+
+BOT_TOKEN = "test-token"
+
+
+def signed_init_data(user_id: int, auth_date: int | None = None, bot_token: str = BOT_TOKEN) -> str:
+    pairs = {
+        "auth_date": str(auth_date or int(time.time())),
+        "query_id": "test-query",
+        "user": json.dumps({"id": user_id, "username": f"user{user_id}"}, separators=(",", ":")),
+    }
+    data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(pairs.items()))
+    secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+    pairs["hash"] = hmac.new(secret, data_check_string.encode(), hashlib.sha256).hexdigest()
+    return urlencode(pairs)
+
+
+@pytest.fixture()
+def client(tmp_path: Path) -> Iterator[TestClient]:
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'api-security.sqlite3'}")
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Base.metadata.create_all(bind=engine)
+
+    def override_db() -> Iterator[Session]:
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    def override_settings() -> Settings:
+        return Settings(
+            bot_token=BOT_TOKEN,
+            database_url="sqlite+pysqlite:///:memory:",
+            webapp_url="https://telegram-library.example.test",
+            backend_public_url="https://telegram-library.example.test",
+            file_cache_dir=tmp_path / "file_cache",
+            initdata_max_age_seconds=60,
+        )
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_settings] = override_settings
+    app.state.testing_session_local = TestingSessionLocal
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.clear()
+        del app.state.testing_session_local
+        Base.metadata.drop_all(bind=engine)
+
+
+def auth_headers(user_id: int, init_data: str | None = None) -> dict[str, str]:
+    return {"X-Telegram-Init-Data": signed_init_data(user_id) if init_data is None else init_data}
+
+
+def seed_owner_data(client: TestClient) -> dict[str, int]:
+    SessionLocal = client.app.state.testing_session_local
+    with SessionLocal() as db:
+        user_a = User(tg_user_id=1001)
+        user_b = User(tg_user_id=2002)
+        db.add_all([user_a, user_b])
+        db.flush()
+        folder_a = Folder(user_id=user_a.id, name="A folder", sort_order=1)
+        folder_b = Folder(user_id=user_b.id, name="B folder", sort_order=1)
+        db.add_all([folder_a, folder_b])
+        db.flush()
+        book_a = Book(
+            user_id=user_a.id,
+            tg_file_id="a-file",
+            tg_file_unique_id="a-unique",
+            file_name="a.epub",
+            mime_type="application/epub+zip",
+            title="A book",
+            author="A author",
+            format="epub",
+            size_bytes=1024,
+            too_large=False,
+            folder_id=None,
+        )
+        book_b = Book(
+            user_id=user_b.id,
+            tg_file_id="b-file",
+            tg_file_unique_id="b-unique",
+            file_name="b.epub",
+            mime_type="application/epub+zip",
+            title="B book",
+            author="B author",
+            format="epub",
+            size_bytes=1024,
+            too_large=False,
+            folder_id=folder_b.id,
+        )
+        too_large = Book(
+            user_id=user_a.id,
+            tg_file_id="large-file",
+            tg_file_unique_id="large-unique",
+            file_name="large.pdf",
+            mime_type="application/pdf",
+            title="Large PDF",
+            author=None,
+            format="pdf",
+            size_bytes=25 * 1024 * 1024,
+            too_large=True,
+            folder_id=None,
+        )
+        db.add_all([book_a, book_b, too_large])
+        db.commit()
+        return {
+            "book_a": book_a.id,
+            "book_b": book_b.id,
+            "folder_b": folder_b.id,
+            "too_large": too_large.id,
+        }
+
+
+def test_user_cannot_read_or_move_another_users_book_or_folder(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+
+    read_other_book = client.get(f"/api/books/{ids['book_b']}", headers=auth_headers(1001))
+    move_other_book = client.patch(
+        f"/api/books/{ids['book_b']}/move",
+        json={"folder_id": None},
+        headers=auth_headers(1001),
+    )
+    list_other_folder = client.get(f"/api/books?folder_id={ids['folder_b']}", headers=auth_headers(1001))
+    move_to_other_folder = client.patch(
+        f"/api/books/{ids['book_a']}/move",
+        json={"folder_id": ids["folder_b"]},
+        headers=auth_headers(1001),
+    )
+
+    assert read_other_book.status_code == 404
+    assert move_other_book.status_code == 404
+    assert list_other_folder.status_code == 404
+    assert move_to_other_folder.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "init_data",
+    [
+        "",
+        signed_init_data(1001, bot_token="wrong-token"),
+        signed_init_data(1001, auth_date=int(time.time()) - 120),
+    ],
+)
+def test_invalid_stale_or_forged_init_data_returns_401(client: TestClient, init_data: str) -> None:
+    response = client.get("/api/home", headers=auth_headers(1001, init_data=init_data))
+
+    assert response.status_code == 401
+
+
+def test_missing_init_data_header_returns_401(client: TestClient) -> None:
+    response = client.get("/api/home")
+
+    assert response.status_code == 401
+
+
+def test_too_large_book_file_endpoint_returns_413(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+
+    response = client.get(f"/api/books/{ids['too_large']}/file", headers=auth_headers(1001))
+
+    assert response.status_code == 413

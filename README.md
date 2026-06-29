@@ -207,11 +207,18 @@ cd miniapp
 VITE_API_BASE=http://localhost:8000 VITE_DEV_INIT_DATA="$INIT_DATA" npm run build:harness
 ```
 
-The Mini App CSP is intentionally strict:
+The Mini App CSP is intentionally strict and has a single source of truth:
+the FastAPI HTTP response header in `backend/app/main.py`. `miniapp/index.html`
+does not define a CSP `<meta http-equiv>` tag, so production cannot drift between
+HTML and the backend header. The HTTP header wins in deployed clients.
 
 ```text
-default-src 'self'; script-src 'self' https://telegram.org https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://telegram.org https://web.telegram.org; worker-src 'self' blob: https://cdn.jsdelivr.net; frame-src blob: data:; object-src 'none'; base-uri 'none';
+default-src 'self'; script-src 'self' https://telegram.org; style-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' <BACKEND_PUBLIC_URL> https://telegram.org https://web.telegram.org; worker-src 'self' blob:; frame-src blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'self' https://web.telegram.org;
 ```
+
+`pdf.js` uses a Vite-bundled same-origin worker asset, so no CDN is needed in
+`script-src` or `worker-src`. CORS is allowlisted to `WEBAPP_URL` and
+`BACKEND_PUBLIC_URL`; wildcard origins are intentionally not used.
 
 Book HTML is sanitized before rendering and placed in sandboxed iframes with `sandbox="allow-same-origin"` and no `allow-scripts`.
 
