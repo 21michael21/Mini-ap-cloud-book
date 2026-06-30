@@ -1,6 +1,7 @@
 import {
   BookFileError,
   type PdfReaderController,
+  type ReaderContentTheme,
   type TextReaderController,
   apiHeaders,
   fetchBookFile,
@@ -58,6 +59,7 @@ type SheetState =
   | { kind: "folderManage"; error: string | null }
   | { kind: "folderEdit"; folder: Folder; name: string; error: string | null }
   | { kind: "folderRemove"; folder: Folder; error: string | null }
+  | { kind: "readerSettings"; book: Book }
   | { kind: "note"; book: Book; locator: string; percent: number; noteText: string; error: string | null }
   | { kind: "notes"; book: Book; notes: Note[]; isLoading: boolean; error: string | null }
   | null;
@@ -93,7 +95,7 @@ let isHomeLoading = false;
 let isLibraryLoading = false;
 let errorMessage: string | null = null;
 let appTheme: AppTheme = readAppTheme();
-let readerTheme: "light" | "dark" = "dark";
+let readerTheme: ReaderContentTheme = readReaderTheme();
 let activeReaderSave: (() => void) | null = null;
 let activeReaderDestroy: (() => void) | null = null;
 let activeTextReader: TextReaderController | null = null;
@@ -102,6 +104,8 @@ let activeReaderRestoreLocator: string | null = null;
 let readerToolbarVisible = true;
 let readerFontSizePx = readReaderFontSize();
 let pdfZoom = readPdfZoom();
+let readerStatusLabel = "Opening...";
+let readerStatusPercent = 0;
 let toastMessage: string | null = null;
 let toastKind: ToastKind = "info";
 let toastTimer = 0;
@@ -883,6 +887,7 @@ function renderSheet(sheet: SheetState): string {
   if (sheet.kind === "folderManage") return renderFolderManageSheet(sheet);
   if (sheet.kind === "folderEdit") return renderFolderEditSheet(sheet);
   if (sheet.kind === "folderRemove") return renderFolderRemoveSheet(sheet);
+  if (sheet.kind === "readerSettings") return renderReaderSettingsSheet(sheet);
   if (sheet.kind === "actions") return renderActionsSheet(sheet);
   if (sheet.kind === "edit") return renderEditBookSheet(sheet);
   if (sheet.kind === "remove") return renderRemoveBookSheet(sheet);
@@ -1071,6 +1076,55 @@ function renderFolderSheet(sheet: Extract<SheetState, { kind: "folder" }>): stri
       </section>
     </div>
   `;
+}
+
+function renderReaderSettingsSheet(sheet: Extract<SheetState, { kind: "readerSettings" }>): string {
+  const isPdf = sheet.book.format === "pdf";
+  return `
+    <div class="sheet-layer" id="sheetScrim">
+      <section class="bottom-sheet sheet-up reader-settings-sheet" aria-label="Reader settings">
+        <div class="sheet-handle"></div>
+        <h3>Reader settings</h3>
+        <p class="sheet-note">${escapeHtml(shortReaderTitle(sheet.book.title))}</p>
+        ${
+          isPdf
+            ? `
+              <div class="reader-setting-row">
+                <span>Zoom</span>
+                <div class="reader-stepper">
+                  <button class="secondary reader-zoom-button" id="readerZoomOut" type="button" aria-label="Zoom out">&minus;</button>
+                  <b>${Math.round(pdfZoom * 100)}%</b>
+                  <button class="secondary reader-zoom-button" id="readerZoomIn" type="button" aria-label="Zoom in">+</button>
+                </div>
+              </div>
+              <button class="ghost-button reader-fit-reset" type="button" id="readerFitWidth">Fit width</button>
+            `
+            : `
+              <div class="reader-setting-row">
+                <span>Font size</span>
+                <div class="reader-stepper">
+                  <button class="secondary reader-font-button" id="readerFontDown" type="button" aria-label="Decrease font size">A-</button>
+                  <b>${readerFontSizePx}px</b>
+                  <button class="secondary reader-font-button" id="readerFontUp" type="button" aria-label="Increase font size">A+</button>
+                </div>
+              </div>
+              <div class="reader-setting-row reader-setting-row--stack">
+                <span>Theme</span>
+                <div class="reader-theme-options" role="group" aria-label="Reader theme">
+                  ${renderReaderThemeButton("Dark", "dark")}
+                  ${renderReaderThemeButton("Light", "light")}
+                  ${renderReaderThemeButton("Sepia", "sepia")}
+                </div>
+              </div>
+            `
+        }
+      </section>
+    </div>
+  `;
+}
+
+function renderReaderThemeButton(label: string, theme: ReaderContentTheme): string {
+  return `<button class="sort-button ${readerTheme === theme ? "active" : ""}" type="button" data-reader-theme="${theme}">${label}</button>`;
 }
 
 function renderFolderManageSheet(sheet: Extract<SheetState, { kind: "folderManage" }>): string {
@@ -1381,6 +1435,25 @@ function bindSheetControls() {
     });
     return;
   }
+  if (activeSheet.kind === "readerSettings") {
+    document.querySelector("#readerFontDown")?.addEventListener("click", () => {
+      changeReaderFontSize(-1);
+      updateActiveSheet();
+    });
+    document.querySelector("#readerFontUp")?.addEventListener("click", () => {
+      changeReaderFontSize(1);
+      updateActiveSheet();
+    });
+    document.querySelector("#readerZoomOut")?.addEventListener("click", () => void changePdfZoom(-1));
+    document.querySelector("#readerZoomIn")?.addEventListener("click", () => void changePdfZoom(1));
+    document.querySelector("#readerFitWidth")?.addEventListener("click", () => void resetPdfZoom());
+    document.querySelectorAll<HTMLElement>("[data-reader-theme]").forEach((button) => {
+      button.addEventListener("click", () => setReaderTheme(button.dataset.readerTheme as ReaderContentTheme));
+    });
+    updateReaderFontButtons();
+    updatePdfZoomButtons(pdfZoom);
+    return;
+  }
   if (activeSheet.kind === "actions") {
     const book = activeSheet.book;
     document.querySelector("#sheetRead")?.addEventListener("click", () => {
@@ -1642,41 +1715,50 @@ function findBook(id: number): Book | undefined {
 function renderReader(book: Book) {
   cleanupActiveReader(false);
   readerToolbarVisible = true;
+  readerStatusLabel = "Opening...";
+  readerStatusPercent = clamp(book.progress_percent, 0, 100);
   activeTextReader = null;
   activePdfReader = null;
-  const isTextReader = book.format !== "pdf";
+  const showHint = shouldShowReaderHint();
+  if (showHint) markReaderHintSeen();
   appEl.className = "reader";
+  applyReaderTheme();
   appEl.innerHTML = `
     <div class="reader-toolbar" id="readerToolbar">
       <button class="secondary" id="backButton" type="button" aria-label="Back">${icon("arrowLeft")}<span>Back</span></button>
-      ${
-        isTextReader
-          ? `<button class="secondary reader-mark-button" id="readerMark" type="button" aria-label="Save bookmark">${icon("bookmark")}<span>Mark</span></button>`
-          : ""
-      }
-      ${
-        isTextReader
-          ? `<button class="secondary reader-font-button" id="readerFontDown" type="button" aria-label="Decrease font size">A-</button>`
-          : `<button class="secondary reader-zoom-button" id="readerZoomOut" type="button" aria-label="Zoom out">&minus;</button>`
-      }
-      <button class="secondary" id="readerPrev" type="button">Prev</button>
-      <span class="reader-progress" id="readerProgress">Opening...</span>
-      <button class="secondary" id="readerNext" type="button">Next</button>
-      ${
-        isTextReader
-          ? `<button class="secondary reader-font-button" id="readerFontUp" type="button" aria-label="Increase font size">A+</button>`
-          : `<button class="secondary reader-zoom-button" id="readerZoomIn" type="button" aria-label="Zoom in">+</button>`
-      }
-      ${isTextReader ? `<button class="secondary reader-theme-button" id="readerThemeButton" type="button">Theme</button>` : ""}
+      <div class="reader-title-wrap">
+        <strong>${escapeHtml(shortReaderTitle(book.title))}</strong>
+        <span class="reader-progress" id="readerProgress">${escapeHtml(readerStatusLabel)}</span>
+      </div>
+      <button class="secondary reader-aa-button" id="readerSettingsButton" type="button" aria-label="Reader settings">Aa</button>
+      <button class="secondary reader-mark-button" id="readerMark" type="button" aria-label="Save bookmark">${icon("bookmark")}</button>
     </div>
     <div class="reader-stage" id="readerStage"></div>
+    <div class="reader-bottom-progress" id="readerBottomProgress">
+      <button class="secondary reader-nav-button" id="readerPrev" type="button">${icon("arrowLeft")}<span>${book.format === "pdf" ? "Page" : "Section"}</span></button>
+      <div class="reader-progress-panel">
+        <div class="reader-progress-copy">
+          <span id="readerBottomLabel">${escapeHtml(readerStatusLabel)}</span>
+          <b id="readerBottomPercent">${formatPercent(readerStatusPercent)}</b>
+        </div>
+        <span class="progress-track reader-progress-track" aria-hidden="true">
+          <span class="progress-meter ${progressClass(readerStatusPercent)}" id="readerProgressMeter"></span>
+        </span>
+      </div>
+      <button class="secondary reader-nav-button" id="readerNext" type="button"><span>${book.format === "pdf" ? "Page" : "Section"}</span>${icon("arrowRight")}</button>
+    </div>
+    ${showHint ? `<button class="reader-hint toast-in" id="readerHint" type="button">Tap the screen for controls. Use Aa to change text size.</button>` : ""}
     ${renderToast()}
   `;
   document.querySelector("#backButton")?.addEventListener("click", () => {
     cleanupActiveReader(true);
     void loadHome();
   });
-  document.querySelector("#readerThemeButton")?.addEventListener("click", toggleReaderTheme);
+  document.querySelector("#readerSettingsButton")?.addEventListener("click", () => {
+    hapticImpact();
+    presentSheet({ kind: "readerSettings", book });
+  });
+  document.querySelector("#readerHint")?.addEventListener("click", dismissReaderHint);
   document.querySelector("#readerStage")?.addEventListener("click", (event) => {
     if ((event.target as HTMLElement).closest("button, a, input, select, textarea")) return;
     toggleReaderToolbar();
@@ -1685,10 +1767,9 @@ function renderReader(book: Book) {
     const stage = document.querySelector<HTMLElement>("#readerStage");
     if ((stage?.scrollTop ?? 0) <= 24) showReaderToolbar();
   }, { passive: true });
-  document.querySelector("#readerFontDown")?.addEventListener("click", () => changeReaderFontSize(-1));
-  document.querySelector("#readerFontUp")?.addEventListener("click", () => changeReaderFontSize(1));
   document.querySelector("#readerMark")?.addEventListener("click", () => openBookmarkSheet(book));
   updateReaderToolbarVisibility();
+  updateReaderControls(readerStatusLabel, false, false, readerStatusPercent);
 
   if (book.too_large) {
     renderDownloadOriginal(document.querySelector<HTMLElement>("#readerStage")!, book);
@@ -1719,9 +1800,10 @@ async function renderTextBook(book: Book) {
       },
       undefined,
       book.format,
-      (status) => updateReaderControls(status.label, status.canGoPrevious, status.canGoNext),
+      (status) => updateReaderControls(status.label, status.canGoPrevious, status.canGoNext, parseReaderPercent(status.label)),
       {
         fontSizePx: readerFontSizePx,
+        theme: readerTheme,
         onTap: toggleReaderToolbar,
         onNearTop: showReaderToolbar,
       },
@@ -1750,9 +1832,10 @@ async function renderPdf(book: Book) {
       },
       (label) =>
         updateReaderControls(
-          label,
+          `Page ${label}`,
           (pdfReader?.getPageNumber() ?? 1) > 1,
           (pdfReader?.getPageNumber() ?? 1) < (pdfReader?.pageCount ?? 1),
+          ((pdfReader?.getPageNumber() ?? 1) / (pdfReader?.pageCount ?? 1)) * 100,
         ),
       {
         zoom: pdfZoom,
@@ -1784,19 +1867,29 @@ function bindPdfReaderControls(controller: PdfReaderController) {
   activePdfReader = controller;
   activeReaderSave = null;
   activeReaderDestroy = null;
-  updateReaderControls(`${controller.getPageNumber()} / ${controller.pageCount}`, controller.getPageNumber() > 1, controller.getPageNumber() < controller.pageCount);
+  updateReaderControls(
+    `Page ${controller.getPageNumber()} / ${controller.pageCount}`,
+    controller.getPageNumber() > 1,
+    controller.getPageNumber() < controller.pageCount,
+    (controller.getPageNumber() / controller.pageCount) * 100,
+  );
   document.querySelector("#readerPrev")?.addEventListener("click", () => void controller.previousPage());
   document.querySelector("#readerNext")?.addEventListener("click", () => void controller.nextPage());
-  document.querySelector("#readerZoomOut")?.addEventListener("click", () => void controller.zoomOut());
-  document.querySelector("#readerZoomIn")?.addEventListener("click", () => void controller.zoomIn());
-  updatePdfZoomButtons(controller.getZoom());
 }
 
-function updateReaderControls(label: string, canGoPrevious: boolean, canGoNext: boolean) {
+function updateReaderControls(label: string, canGoPrevious: boolean, canGoNext: boolean, percent = parseReaderPercent(label)) {
   const progress = document.querySelector<HTMLElement>("#readerProgress");
+  const bottomLabel = document.querySelector<HTMLElement>("#readerBottomLabel");
+  const bottomPercent = document.querySelector<HTMLElement>("#readerBottomPercent");
+  const progressMeter = document.querySelector<HTMLElement>("#readerProgressMeter");
   const previous = document.querySelector<HTMLButtonElement>("#readerPrev");
   const next = document.querySelector<HTMLButtonElement>("#readerNext");
+  readerStatusLabel = label;
+  readerStatusPercent = clamp(percent, 0, 100);
   if (progress) progress.textContent = label;
+  if (bottomLabel) bottomLabel.textContent = label;
+  if (bottomPercent) bottomPercent.textContent = formatPercent(readerStatusPercent);
+  if (progressMeter) progressMeter.className = `progress-meter ${progressClass(readerStatusPercent)}`;
   if (previous) previous.disabled = !canGoPrevious;
   if (next) next.disabled = !canGoNext;
 }
@@ -1919,9 +2012,23 @@ function writeLibrarySort() {
   window.localStorage.setItem("telegram-library-sort", librarySort);
 }
 
-function toggleReaderTheme() {
-  readerTheme = readerTheme === "dark" ? "light" : "dark";
+function setReaderTheme(theme: ReaderContentTheme) {
+  readerTheme = theme;
+  window.localStorage.setItem("telegram-library-reader-theme", readerTheme);
+  applyReaderTheme();
+  activeTextReader?.setTheme(readerTheme);
+  updateActiveSheet();
+}
+
+function applyReaderTheme() {
   document.body.classList.toggle("reader-light", readerTheme === "light");
+  document.body.classList.toggle("reader-sepia", readerTheme === "sepia");
+}
+
+function readReaderTheme(): ReaderContentTheme {
+  const stored = window.localStorage.getItem("telegram-library-reader-theme");
+  if (stored === "light" || stored === "sepia") return stored;
+  return "dark";
 }
 
 function toggleReaderToolbar() {
@@ -1944,6 +2051,27 @@ function changeReaderFontSize(delta: number) {
   window.localStorage.setItem("telegram-library-reader-font-size", String(readerFontSizePx));
   activeTextReader?.setFontSize(readerFontSizePx);
   updateReaderFontButtons();
+}
+
+async function changePdfZoom(direction: -1 | 1) {
+  const reader = activePdfReader;
+  if (!reader) return;
+  if (direction < 0) await reader.zoomOut();
+  else await reader.zoomIn();
+  pdfZoom = reader.getZoom();
+  window.localStorage.setItem("telegram-library-pdf-zoom", String(pdfZoom));
+  updatePdfZoomButtons(pdfZoom);
+  updateActiveSheet();
+}
+
+async function resetPdfZoom() {
+  const reader = activePdfReader;
+  if (!reader) return;
+  pdfZoom = 1;
+  window.localStorage.setItem("telegram-library-pdf-zoom", String(pdfZoom));
+  await reader.setZoom(pdfZoom);
+  updatePdfZoomButtons(pdfZoom);
+  updateActiveSheet();
 }
 
 function updateReaderFontButtons() {
@@ -1987,6 +2115,30 @@ function progressLabel(book: Book): string {
 
 function formatPercent(percent: number): string {
   return `${Math.round(clamp(percent, 0, 100))}%`;
+}
+
+function parseReaderPercent(label: string): number {
+  const match = label.match(/(\d+(?:\.\d+)?)%/);
+  if (!match) return readerStatusPercent;
+  return clamp(Number(match[1]), 0, 100);
+}
+
+function shouldShowReaderHint(): boolean {
+  return window.localStorage.getItem("telegram-library-reader-hint-seen") !== "1";
+}
+
+function markReaderHintSeen() {
+  window.localStorage.setItem("telegram-library-reader-hint-seen", "1");
+}
+
+function dismissReaderHint() {
+  document.querySelector("#readerHint")?.remove();
+}
+
+function shortReaderTitle(title: string): string {
+  const clean = title.trim();
+  if (clean.length <= 42) return clean || "Reader";
+  return `${clean.slice(0, 39).trim()}...`;
 }
 
 function formatNoteDate(value: string): string {
@@ -2069,6 +2221,7 @@ function icon(name: string): string {
     arrowUp: `<svg ${attrs}><path d="M12 19V5"></path><path d="m6 11 6-6 6 6"></path></svg>`,
     arrowDown: `<svg ${attrs}><path d="M12 5v14"></path><path d="m6 13 6 6 6-6"></path></svg>`,
     arrowLeft: `<svg ${attrs}><path d="m15 18-6-6 6-6"></path></svg>`,
+    arrowRight: `<svg ${attrs}><path d="m9 18 6-6-6-6"></path></svg>`,
     alert: `<svg ${attrs}><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 4.4 2.8 17.4A2 2 0 0 0 4.5 20h15a2 2 0 0 0 1.7-2.6L13.7 4.4a2 2 0 0 0-3.4 0z"></path></svg>`,
     download: `<svg ${attrs}><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>`,
     plus: `<svg ${attrs} width="13" height="13"><path d="M12 5v14M5 12h14"></path></svg>`,

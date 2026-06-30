@@ -1537,26 +1537,46 @@ mark {
 }
 
 body.reader-light .reader {
-  --surface: #f8f4ea;
-  --surface-2: #eee5d6;
-  --surface-3: #fdfaf3;
+  --surface: #fbfbfd;
+  --surface-2: #eef1f8;
+  --surface-3: #ffffff;
   --text: #1d1a16;
-  --muted: #6e675f;
-  --line: #ded6c7;
+  --muted: #5f6678;
+  --line: #d8deeb;
   --accent: #6d4fbf;
   --accent-soft: rgba(109, 79, 191, 0.14);
-  --button-bg: #eee5d6;
-  --button-bg-pressed: #e3d6c2;
+  --button-bg: #eef1f8;
+  --button-bg-pressed: #e3e8f3;
   --button-text: #1d1a16;
-  --button-muted-text: #5f574f;
-  --button-border: #d5c7b4;
-  --button-disabled-bg: #e8dfd1;
-  --button-disabled-text: #6f665b;
-  --button-ghost-bg: #f8f4ea;
+  --button-muted-text: #4f5667;
+  --button-border: #d8deeb;
+  --button-disabled-bg: #edf0f6;
+  --button-disabled-text: #70788b;
+  --button-ghost-bg: #ffffff;
   --button-ghost-text: #1d1a16;
 }
 
-body:not(.reader-light) .reader {
+body.reader-sepia .reader {
+  --surface: #f8f0df;
+  --surface-2: #efe1ca;
+  --surface-3: #fff8ec;
+  --text: #211b14;
+  --muted: #625443;
+  --line: #d8c6aa;
+  --accent: #6d4fbf;
+  --accent-soft: rgba(109, 79, 191, 0.14);
+  --button-bg: #efe1ca;
+  --button-bg-pressed: #e4d2b5;
+  --button-text: #211b14;
+  --button-muted-text: #5a4d3f;
+  --button-border: #d8c6aa;
+  --button-disabled-bg: #eadcc4;
+  --button-disabled-text: #756957;
+  --button-ghost-bg: #fff8ec;
+  --button-ghost-text: #211b14;
+}
+
+body:not(.reader-light):not(.reader-sepia) .reader {
   --surface: #151821;
   --surface-2: #202536;
   --surface-3: #1a1f2e;
@@ -1584,11 +1604,9 @@ body:not(.reader-light) .reader {
   left: 10px;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  padding: 7px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
   border: 1px solid var(--button-border);
   border-radius: 13px;
   background: var(--surface);
@@ -1596,12 +1614,6 @@ body:not(.reader-light) .reader {
   transition:
     opacity 180ms ease,
     transform 180ms ease;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.reader-toolbar::-webkit-scrollbar {
-  display: none;
 }
 
 .reader-toolbar.is-hidden {
@@ -1630,15 +1642,34 @@ body:not(.reader-light) .reader {
   background: var(--button-disabled-bg);
   color: var(--button-disabled-text);
   cursor: not-allowed;
+  opacity: 1;
 }
 
 .reader-progress {
-  flex: 0 0 auto;
-  min-width: 64px;
+  display: block;
+  overflow: hidden;
+  max-width: 100%;
   color: var(--button-muted-text);
   font-size: 12px;
   line-height: 1.15;
-  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-title-wrap {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+}
+
+.reader-title-wrap strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .reader-font-button {
@@ -1661,10 +1692,6 @@ body:not(.reader-light) .reader {
   padding: 0 8px;
 }
 
-.reader-mark-button span {
-  display: none;
-}
-
 .reader-toolbar #backButton span {
   display: none;
 }
@@ -1676,14 +1703,14 @@ body:not(.reader-light) .reader {
   overflow: auto;
   overscroll-behavior: contain;
   padding-top: calc(env(safe-area-inset-top, 0px) + 72px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 104px);
   -webkit-overflow-scrolling: touch;
 }
 
 .reader-loading,
 .reader-error {
-  min-height: calc(100vh - 72px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-  min-height: calc(100dvh - 72px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  min-height: calc(100vh - 176px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  min-height: calc(100dvh - 176px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   padding: 28px 20px;
 }
 
@@ -1709,10 +1736,129 @@ foliate-view {
 .book-frame {
   display: block;
   width: 100%;
-  height: calc(100vh - 72px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-  height: calc(100dvh - 72px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  height: calc(100vh - 176px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  height: calc(100dvh - 176px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   border: 0;
   background: #fff;
+}
+
+.reader-bottom-progress {
+  position: fixed;
+  z-index: 4;
+  right: 10px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+  left: 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--button-border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 -10px 26px rgba(0, 0, 0, 0.16);
+}
+
+.reader-nav-button {
+  min-width: 48px;
+}
+
+.reader-nav-button span {
+  display: none;
+}
+
+.reader-progress-panel {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.reader-progress-copy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--button-muted-text);
+  font-size: 12px;
+}
+
+.reader-progress-copy span {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-progress-copy b {
+  flex: 0 0 auto;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.reader-progress-track {
+  height: 5px;
+}
+
+.reader-hint {
+  position: fixed;
+  z-index: 6;
+  right: 18px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
+  left: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-border);
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
+}
+
+.reader-settings-sheet {
+  display: grid;
+  gap: 14px;
+}
+
+.reader-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.reader-setting-row > span {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.reader-setting-row--stack {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.reader-stepper,
+.reader-theme-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reader-stepper b {
+  min-width: 56px;
+  color: var(--text);
+  font-size: 14px;
+  text-align: center;
+}
+
+.reader-fit-reset {
+  width: 100%;
 }
 
 .pdf-page-shell {

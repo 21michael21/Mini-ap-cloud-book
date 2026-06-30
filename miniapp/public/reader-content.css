@@ -58,6 +58,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+html.reader-theme-dark body {
+  background: #15110d;
+  color: #efe5d8;
+}
+
+html.reader-theme-light body {
+  background: #ffffff;
+  color: #1d1a16;
+}
+
+html.reader-theme-sepia body {
+  background: #f8f0df;
+  color: #211b14;
+}
+
 .reader-article {
   box-sizing: border-box;
   margin: 0 auto;
@@ -78,6 +93,33 @@ h6 {
   line-height: 1.24;
   margin: 1.55em 0 0.65em;
   overflow-wrap: break-word;
+}
+
+html.reader-theme-dark h1,
+html.reader-theme-dark h2,
+html.reader-theme-dark h3,
+html.reader-theme-dark h4,
+html.reader-theme-dark h5,
+html.reader-theme-dark h6 {
+  color: #fff4e6;
+}
+
+html.reader-theme-light h1,
+html.reader-theme-light h2,
+html.reader-theme-light h3,
+html.reader-theme-light h4,
+html.reader-theme-light h5,
+html.reader-theme-light h6 {
+  color: #16130f;
+}
+
+html.reader-theme-sepia h1,
+html.reader-theme-sepia h2,
+html.reader-theme-sepia h3,
+html.reader-theme-sepia h4,
+html.reader-theme-sepia h5,
+html.reader-theme-sepia h6 {
+  color: #18120c;
 }
 
 h1 {
@@ -109,11 +151,29 @@ a {
   text-underline-offset: 0.16em;
 }
 
+html.reader-theme-dark a {
+  color: #9fb0ff;
+}
+
+html.reader-theme-sepia a {
+  color: #564bd6;
+}
+
 blockquote {
   border-left: 4px solid #d8b783;
   color: #3f372d;
   margin: 1.25em 0;
   padding: 0.15em 0 0.15em 1em;
+}
+
+html.reader-theme-dark blockquote {
+  border-left-color: #8f7047;
+  color: #d9c9b5;
+}
+
+html.reader-theme-sepia blockquote {
+  border-left-color: #c89454;
+  color: #514535;
 }
 
 ul,
@@ -139,6 +199,18 @@ pre {
   overflow-x: auto;
   overflow-wrap: anywhere;
   padding: 0.9em 1em;
+}
+
+html.reader-theme-dark pre,
+html.reader-theme-dark code {
+  background: #241c14;
+  color: #f3e6d4;
+}
+
+html.reader-theme-sepia pre,
+html.reader-theme-sepia code {
+  background: #efe1ca;
+  color: #241d16;
 }
 
 code {
@@ -185,6 +257,37 @@ th {
   font-weight: 600;
 }
 
+html.reader-theme-dark pre,
+html.reader-theme-dark th,
+html.reader-theme-dark td,
+html.reader-theme-dark .reader-empty-section {
+  border-color: #3f3123;
+}
+
+html.reader-theme-dark th {
+  background: #2c2117;
+}
+
+html.reader-theme-dark .reader-empty-section {
+  background: #211911;
+  color: #d9c9b5;
+}
+
+html.reader-theme-sepia th {
+  background: #eddfc7;
+}
+
+html.reader-theme-sepia th,
+html.reader-theme-sepia td,
+html.reader-theme-sepia .reader-empty-section {
+  border-color: #d8c6aa;
+}
+
+html.reader-theme-sepia .reader-empty-section {
+  background: #efe1ca;
+  color: #514535;
+}
+
 .reader-empty-section {
   background: #f7efe3;
   border: 1px solid #eadcc9;
@@ -205,47 +308,47 @@ th {
 }
 
 @media (prefers-color-scheme: dark) {
-  body {
+  html:not(.reader-theme-light):not(.reader-theme-sepia) body {
     background: #15110d;
     color: #efe5d8;
   }
 
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
-  h6 {
+  html:not(.reader-theme-light):not(.reader-theme-sepia) h1,
+  html:not(.reader-theme-light):not(.reader-theme-sepia) h2,
+  html:not(.reader-theme-light):not(.reader-theme-sepia) h3,
+  html:not(.reader-theme-light):not(.reader-theme-sepia) h4,
+  html:not(.reader-theme-light):not(.reader-theme-sepia) h5,
+  html:not(.reader-theme-light):not(.reader-theme-sepia) h6 {
     color: #fff4e6;
   }
 
-  a {
+  html:not(.reader-theme-light):not(.reader-theme-sepia) a {
     color: #9fb0ff;
   }
 
-  blockquote {
+  html:not(.reader-theme-light):not(.reader-theme-sepia) blockquote {
     border-left-color: #8f7047;
     color: #d9c9b5;
   }
 
-  pre,
-  code {
+  html:not(.reader-theme-light):not(.reader-theme-sepia) pre,
+  html:not(.reader-theme-light):not(.reader-theme-sepia) code {
     background: #241c14;
     color: #f3e6d4;
   }
 
-  pre,
-  th,
-  td,
-  .reader-empty-section {
+  html:not(.reader-theme-light):not(.reader-theme-sepia) pre,
+  html:not(.reader-theme-light):not(.reader-theme-sepia) th,
+  html:not(.reader-theme-light):not(.reader-theme-sepia) td,
+  html:not(.reader-theme-light):not(.reader-theme-sepia) .reader-empty-section {
     border-color: #3f3123;
   }
 
-  th {
+  html:not(.reader-theme-light):not(.reader-theme-sepia) th {
     background: #2c2117;
   }
 
-  .reader-empty-section {
+  html:not(.reader-theme-light):not(.reader-theme-sepia) .reader-empty-section {
     background: #211911;
     color: #d9c9b5;
   }

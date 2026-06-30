@@ -32,6 +32,7 @@ export type TextReaderController = {
   previousSection: () => Promise<void>;
   nextSection: () => Promise<void>;
   setFontSize: (fontSizePx: number) => void;
+  setTheme: (theme: ReaderContentTheme) => void;
   saveNow: () => void;
   getCurrentPosition: () => Position;
   destroy: () => void;
@@ -42,6 +43,7 @@ export type TextReaderController = {
 
 export type TextReaderOptions = {
   fontSizePx?: number;
+  theme?: ReaderContentTheme;
   onTap?: () => void;
   onNearTop?: () => void;
 };
@@ -56,6 +58,7 @@ export type PdfReaderController = {
   nextPage: () => Promise<void>;
   zoomOut: () => Promise<void>;
   zoomIn: () => Promise<void>;
+  setZoom: (zoom: number) => Promise<void>;
   getCurrentPosition: () => Position;
 };
 
@@ -88,6 +91,8 @@ type PlainTextBook = {
   splitTOCHref: (href: string) => [string, string];
   getTOCFragment: (doc: Document) => Node;
 };
+
+export type ReaderContentTheme = "dark" | "light" | "sepia";
 
 type FoliateBook = PlainTextBook & {
   sections: Array<{
@@ -193,6 +198,7 @@ export async function openFoliateReader(
   let destroyed = false;
   let isSwitchingSection = false;
   let fontSizePx = options.fontSizePx ?? 18;
+  let theme: ReaderContentTheme = options.theme ?? "dark";
 
   const currentPosition = (): Position => {
     const currentRatio = getIframeScrollRatio(iframe);
@@ -243,6 +249,7 @@ export async function openFoliateReader(
       debouncedSave,
       () => options.onTap?.(),
       fontSizePx,
+      theme,
     );
     const renderedText = iframe.contentDocument?.body?.innerText?.trim() || EMPTY_SECTION_MESSAGE;
     warnReaderDiagnostics(
@@ -284,6 +291,10 @@ export async function openFoliateReader(
     setFontSize: (nextFontSizePx: number) => {
       fontSizePx = clamp(nextFontSizePx, 15, 26);
       applyIframeFontSize(iframe, fontSizePx);
+    },
+    setTheme: (nextTheme: ReaderContentTheme) => {
+      theme = nextTheme;
+      applyIframeTheme(iframe, theme);
     },
     saveNow: save,
     getCurrentPosition: currentPosition,
@@ -389,6 +400,7 @@ export async function openPdfReader(
     nextPage: () => renderPage(requestedPage + 1),
     zoomOut: () => setZoom(zoom - PDF_ZOOM_STEP),
     zoomIn: () => setZoom(zoom + PDF_ZOOM_STEP),
+    setZoom,
     getCurrentPosition: () => ({
       locator: String(pageNumber),
       percent: (pageNumber / pdf.numPages) * 100,
@@ -529,6 +541,7 @@ async function renderSectionIframe(
   onScroll: () => void,
   onTap: () => void,
   fontSizePx: number,
+  theme: ReaderContentTheme,
 ): Promise<HTMLIFrameElement> {
   const { src, srcdoc } = await makeSafeSectionUrl(section);
   const iframe = document.createElement("iframe");
@@ -557,6 +570,7 @@ async function renderSectionIframe(
   });
   await new Promise((resolve) => window.requestAnimationFrame(resolve));
   applyIframeFontSize(iframe, fontSizePx);
+  applyIframeTheme(iframe, theme);
   setIframeScrollRatio(iframe, restoreScrollRatio);
   iframe.contentWindow?.addEventListener("scroll", onScroll, { passive: true });
   iframe.contentDocument?.addEventListener("pointerup", (event) => {
@@ -768,6 +782,21 @@ function applyIframeFontSize(iframe: HTMLIFrameElement | null, fontSizePx: numbe
     .filter((className) => className.startsWith("reader-font-"))
     .forEach((className) => root.classList.remove(className));
   root.classList.add(`reader-font-${size}`);
+}
+
+function applyIframeTheme(iframe: HTMLIFrameElement | null, theme: ReaderContentTheme): void {
+  const doc = iframe?.contentDocument;
+  if (!doc) return;
+  if (!doc.querySelector('link[data-reader-content-css="true"]')) {
+    const link = doc.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "/reader-content.css";
+    link.dataset.readerContentCss = "true";
+    (doc.head ?? doc.documentElement).prepend(link);
+  }
+  const root = doc.documentElement;
+  root.classList.remove("reader-theme-dark", "reader-theme-light", "reader-theme-sepia");
+  root.classList.add(`reader-theme-${theme}`);
 }
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
