@@ -1,4 +1,4 @@
-import { expect, type ConsoleMessage, type Page, test } from "@playwright/test";
+import { expect, type ConsoleMessage, type Locator, type Page, test } from "@playwright/test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,8 +15,13 @@ const records: PrivateFixtureRecord[] = [];
 type PrivateFixture = {
   fileName: string;
   title: string;
+  author: string | null;
   format: string;
+  detectedFormat: string;
   bookId: number;
+  titleSource: "metadata" | "fallback";
+  hasExtractedCover: boolean;
+  coverUrl: string | null;
 };
 
 type SeedEnv = {
@@ -35,8 +40,16 @@ type ExperimentFlags = {
 type PrivateFixtureRecord = {
   fileName: string;
   format: string;
+  detectedFormat: string;
+  metadataTitle: string;
+  titleSource: string;
+  coverState: "image" | "fallback" | "loading" | "unknown";
   opened: boolean;
   visibleTextLength: number;
+  aaVisible: boolean;
+  fontSizeWorks: boolean;
+  noHorizontalOverflow: boolean;
+  overflowWidth: number;
   progressVisible: boolean;
   positionRestore: boolean;
   screenshotPath: string | null;
@@ -64,10 +77,14 @@ test.describe("private reader fixtures", () => {
       records.push(record);
       expect(record.opened, record.errors.join("\n")).toBe(true);
       expect(record.progressVisible, record.errors.join("\n")).toBe(true);
+      expect(record.aaVisible, record.errors.join("\n")).toBe(true);
+      expect(record.noHorizontalOverflow, record.errors.join("\n")).toBe(true);
+      expect(record.coverState, record.errors.join("\n")).toMatch(/^(image|fallback)$/);
       if (fixture.format === "pdf") {
         expect(record.visibleTextLength, record.errors.join("\n")).toBeGreaterThan(0);
       } else {
         expect(record.visibleTextLength, record.errors.join("\n")).toBeGreaterThanOrEqual(minTextLength);
+        expect(record.fontSizeWorks, record.errors.join("\n")).toBe(true);
       }
       expect(record.positionRestore, record.errors.join("\n")).toBe(true);
     });
@@ -78,8 +95,13 @@ async function checkPrivateFixture(page: Page, fixture: PrivateFixture): Promise
   const errors: string[] = [];
   let opened = false;
   let visibleTextLength = 0;
+  let aaVisible = false;
+  let fontSizeWorks = fixture.format === "pdf";
+  let noHorizontalOverflow = false;
+  let overflowWidth = 0;
   let progressVisible = false;
   let positionRestore = false;
+  let coverState: PrivateFixtureRecord["coverState"] = "unknown";
   let screenshotPath: string | null = null;
   const capturePageError = (error: Error) => errors.push(`pageerror: ${error.message}`);
   const captureConsoleError = (message: ConsoleMessage) => {
@@ -91,10 +113,14 @@ async function checkPrivateFixture(page: Page, fixture: PrivateFixture): Promise
 
   try {
     await resetPosition(fixture);
-    await openBook(page, fixture.title);
+    coverState = await openBook(page, fixture.title);
     opened = (await page.locator("#readerStage").isVisible().catch(() => false)) && (await page.locator(".reader-error").count()) === 0;
     progressVisible = await page.locator("#readerBottomProgress").isVisible().catch(() => false);
+    aaVisible = await page.locator("#readerSettingsButton").isVisible().catch(() => false);
     visibleTextLength = await readerVisibleTextLength(page, fixture.format);
+    overflowWidth = await readerOverflowWidth(page, fixture.format);
+    noHorizontalOverflow = overflowWidth <= 8;
+    if (fixture.format !== "pdf") fontSizeWorks = await checkFontSizeWorks(page);
     screenshotPath = await saveScreenshot(page, fixture.fileName);
 
     if (fixture.format === "pdf") {
@@ -113,8 +139,16 @@ async function checkPrivateFixture(page: Page, fixture: PrivateFixture): Promise
   return {
     fileName: fixture.fileName,
     format: fixture.format,
+    detectedFormat: fixture.detectedFormat,
+    metadataTitle: fixture.title,
+    titleSource: fixture.titleSource,
+    coverState,
     opened,
     visibleTextLength,
+    aaVisible,
+    fontSizeWorks,
+    noHorizontalOverflow,
+    overflowWidth,
     progressVisible,
     positionRestore,
     screenshotPath,
@@ -123,15 +157,17 @@ async function checkPrivateFixture(page: Page, fixture: PrivateFixture): Promise
   };
 }
 
-async function openBook(page: Page, title: string): Promise<void> {
+async function openBook(page: Page, title: string): Promise<PrivateFixtureRecord["coverState"]> {
   await page.goto("/");
   await page.locator("#libraryNav").click();
   await expect(page.locator("#searchInput")).toBeVisible();
   await page.locator("#searchInput").fill(title);
   const row = page.locator(".book-row", { hasText: title }).first();
   await expect(row).toBeVisible();
+  const coverState = await waitForCoverState(row);
   await row.click();
   await expect(page.locator("#readerStage")).toBeVisible();
+  return coverState;
 }
 
 async function checkTextRestore(page: Page, fixture: PrivateFixture): Promise<boolean> {
@@ -179,6 +215,68 @@ async function readerVisibleTextLength(page: Page, format: string): Promise<numb
     }).catch(() => 0);
   }
   return (await page.locator("#readerStage").innerText().catch(() => "")).trim().length;
+}
+
+async function checkFontSizeWorks(page: Page): Promise<boolean> {
+  const before = await readerTextFontSize(page);
+  await page.locator("#readerSettingsButton").click({ timeout: 1000 }).catch(() => undefined);
+  await expect(page.locator(".reader-settings-sheet")).toBeVisible({ timeout: 1500 });
+  await page.locator("#readerFontUp").click({ timeout: 1000 }).catch(() => undefined);
+  await page.waitForTimeout(250);
+  const after = await readerTextFontSize(page);
+  await page.locator("#sheetScrim").click({ position: { x: 8, y: 8 }, timeout: 1000 }).catch(() => undefined);
+  return before !== null && after !== null && after > before;
+}
+
+async function readerTextFontSize(page: Page): Promise<number | null> {
+  const frameCount = await page.locator(".book-frame").count();
+  if (frameCount > 0) {
+    return page.locator(".book-frame").evaluate((iframe: HTMLIFrameElement) => {
+      const body = iframe.contentDocument?.body;
+      return body ? Number.parseFloat(getComputedStyle(body).fontSize) : null;
+    }).catch(() => null);
+  }
+  return page.locator("#readerStage").evaluate((stage) => Number.parseFloat(getComputedStyle(stage).fontSize)).catch(() => null);
+}
+
+async function readerOverflowWidth(page: Page, format: string): Promise<number> {
+  if (format === "pdf") {
+    return page.locator("#readerStage").evaluate((stage) => Math.max(0, stage.scrollWidth - stage.clientWidth)).catch(() => 0);
+  }
+  const frameCount = await page.locator(".book-frame").count();
+  if (frameCount > 0) {
+    return page.locator(".book-frame").evaluate((iframe: HTMLIFrameElement) => {
+      const doc = iframe.contentDocument;
+      const root = doc?.scrollingElement ?? doc?.documentElement;
+      const body = doc?.body;
+      const scrollWidth = Math.max(root?.scrollWidth ?? 0, body?.scrollWidth ?? 0);
+      const clientWidth = Math.max(root?.clientWidth ?? 0, body?.clientWidth ?? 0, iframe.clientWidth);
+      return Math.max(0, Math.round(scrollWidth - clientWidth));
+    }).catch(() => 0);
+  }
+  return page.locator("#readerStage").evaluate((stage) => Math.max(0, stage.scrollWidth - stage.clientWidth)).catch(() => 0);
+}
+
+async function waitForCoverState(row: Locator): Promise<PrivateFixtureRecord["coverState"]> {
+  const cover = row.locator(".book-cover").first();
+  await expect(cover).toBeVisible();
+  await expect
+    .poll(
+      async () => coverState(cover),
+      { timeout: 4000 },
+    )
+    .toMatch(/^(image|fallback)$/);
+  return coverState(cover);
+}
+
+async function coverState(cover: Locator): Promise<PrivateFixtureRecord["coverState"]> {
+  return cover.evaluate((element) => {
+    const image = element.querySelector<HTMLImageElement>("img.cover-image:not(.cover-image-broken)");
+    if (image && !image.hidden && image.src.startsWith("blob:") && image.naturalWidth > 0) return "image";
+    if (element.classList.contains("cover-fallback-active")) return "fallback";
+    if (element.classList.contains("cover-loading")) return "loading";
+    return "unknown";
+  });
 }
 
 async function scrollCurrentReader(page: Page, ratio: number): Promise<void> {

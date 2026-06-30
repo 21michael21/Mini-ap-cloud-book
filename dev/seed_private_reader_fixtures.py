@@ -14,8 +14,10 @@ ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
 sys.path.insert(0, str(REPO))
 
+from backend.app.config import Settings
+from backend.app.covers import extract_and_store_cover
 from backend.app.db import Base
-from backend.app.formats import detect_format, sniff_format
+from backend.app.formats import clean_title_from_filename, detect_format, extract_metadata, sniff_format
 from backend.app.models import Book, User
 from dev.make_init_data import make_init_data
 
@@ -68,6 +70,17 @@ def main() -> None:
     engine = create_engine(database_url)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
     Base.metadata.create_all(bind=engine)
+    settings = Settings(
+        bot_token=BOT_TOKEN,
+        database_url=database_url,
+        webapp_url="http://127.0.0.1:15173",
+        backend_public_url="http://127.0.0.1:18080",
+        file_cache_dir=cache_dir,
+        cover_cache_dir=cover_dir,
+        file_cache_max_bytes=256 * 1024 * 1024,
+        cover_cache_max_bytes=32 * 1024 * 1024,
+        initdata_max_age_seconds=86400,
+    )
     books_by_name: dict[str, int] = {}
     fixture_payload: list[dict[str, object]] = []
     with SessionLocal() as db:
@@ -82,7 +95,11 @@ def main() -> None:
                     f"Private fixture {path.name} detected as {fmt or 'unknown'}; "
                     "the mandatory gate covers EPUB, FB2, TXT, and PDF only."
                 )
-            title = f"Private Fixture: {path.name}"
+            metadata = extract_metadata(path, path.name, fmt)
+            fallback_title = clean_title_from_filename(path.name)
+            title = metadata.title or fallback_title
+            title_source = "metadata" if metadata.title and metadata.title != fallback_title else "fallback"
+            cover_ref = extract_and_store_cover(settings, path, path.name, fmt, title=title, author=metadata.author)
             book = Book(
                 user_id=user.id,
                 tg_file_id=f"private-e2e-{index}",
@@ -90,10 +107,10 @@ def main() -> None:
                 file_name=path.name,
                 mime_type=mime_type_for(fmt),
                 title=title,
-                author=None,
+                author=metadata.author,
                 normalized_title=title.lower(),
                 format=fmt,
-                cover_ref=None,
+                cover_ref=cover_ref,
                 content_sha256=None,
                 size_bytes=path.stat().st_size,
                 too_large=False,
@@ -105,7 +122,19 @@ def main() -> None:
             db.flush()
             shutil.copyfile(path, cache_dir / f"{book.id}.{fmt}")
             books_by_name[path.name] = book.id
-            fixture_payload.append({"fileName": path.name, "title": title, "format": fmt, "bookId": book.id})
+            fixture_payload.append(
+                {
+                    "fileName": path.name,
+                    "title": title,
+                    "author": metadata.author,
+                    "format": fmt,
+                    "detectedFormat": fmt,
+                    "bookId": book.id,
+                    "titleSource": title_source,
+                    "hasExtractedCover": cover_ref is not None,
+                    "coverUrl": f"/api/books/{book.id}/cover" if cover_ref else None,
+                }
+            )
 
         db.commit()
 

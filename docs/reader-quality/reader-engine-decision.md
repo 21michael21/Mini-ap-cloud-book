@@ -6,17 +6,19 @@ Date: 2026-06-30
 
 Keep `custom + clean + v2` as the default reader path. Do not switch the production default to `foliate-view` yet.
 
-The custom reader passed the public fixture matrix with reliable visible text, progress, font-size changes, and position restore. `foliate-view` is promising visually, but it is not ready for default use because the automated checks cannot reliably inspect rendered text through its internals, font-size changes are not observable, TXT restore fails, and teardown can throw inside `foliate-js`.
+The custom reader passed the public fixture matrix with reliable visible text, progress, font-size changes, and position restore. The strengthened `bad_markup.epub` fixture now covers weird nested markup, stripped scripts/styles, long Russian headings, and horizontal-overflow risk.
+
+`foliate-view` is promising visually, but it is not ready for default use because the automated checks cannot reliably inspect rendered text through its internals, font-size changes are not observable, TXT restore fails, and teardown can throw inside `foliate-js`.
 
 ## Modes Tested
 
 | Mode | Text engine | Render mode | UI | Public fixtures passed | Private fixtures passed | Recommendation |
 | --- | --- | --- | --- | ---: | ---: | --- |
-| custom-clean-v2 | `custom` | `clean` | `v2` | 8/8 | 0/0 | Keep as default candidate |
+| custom-clean-v2 | `custom` | `clean` | `v2` | 8/8 | 0/0 | Keep as default |
 | custom-original-v2 | `custom` | `original` | `v2` | 8/8 | 0/0 | Keep available for comparison only |
 | foliate-view-clean-v2 | `foliate-view` | `clean` | `v2` | 2/8 | 0/0 | Not ready |
 
-No private fixtures were present in `dev/reader_fixtures/private/` during this run, so private results are `0/0`. The report does not include raw private content.
+No private fixtures were present in `dev/reader_fixtures/private/` during this run, and the reported problematic book similar to "Жила-была девочка" was not found on this machine. Private results are therefore `0/0`; the workflow is ready, but the exact real book has not been reproduced locally. Private reports never include raw book content.
 
 ## Public Fixture Matrix
 
@@ -31,11 +33,13 @@ No private fixtures were present in `dev/reader_fixtures/private/` during this r
 | small.pdf | PDF | Pass | Pass | Pass |
 | scanned_like.pdf | PDF | Pass | Pass | Pass |
 
+The `bad_markup.epub` clean-mode regression specifically verifies that unknown nested tags are unwrapped instead of losing text, scripts/styles are removed, long Russian text wraps, and frame overflow stays within tolerance.
+
 Source reports:
 
-- `reports/reader-experiments/2026-06-30T14-15-15-703Z-custom-clean-v2.json`
-- `reports/reader-experiments/2026-06-30T14-15-15-703Z-custom-original-v2.json`
-- `reports/reader-experiments/2026-06-30T14-15-15-703Z-foliate-view-clean-v2.json`
+- `reports/reader-experiments/2026-06-30T19-28-11-654Z-custom-clean-v2.json`
+- `reports/reader-experiments/2026-06-30T19-28-11-654Z-custom-original-v2.json`
+- `reports/reader-experiments/2026-06-30T19-28-11-654Z-foliate-view-clean-v2.json`
 
 ## Screenshot Summary
 
@@ -44,6 +48,7 @@ Screenshots were written under:
 - `reports/reader-experiments/screenshots/custom-clean-v2/`
 - `reports/reader-experiments/screenshots/custom-original-v2/`
 - `reports/reader-experiments/screenshots/foliate-view-clean-v2/`
+- `tests/screenshots/artifacts/desktop-reader-bad-markup-clean.png`
 
 The custom reader screenshots show readable text and stable v2 chrome. The foliate-view screenshots show visible text for text fixtures, but the automated DOM checks still report `visibleTextLength=0`; that is an e2e observability blocker for using foliate-view as a controlled engine in this app.
 
@@ -55,6 +60,16 @@ The custom reader screenshots show readable text and stable v2 chrome. The folia
 4. Cleanup can throw in `foliate-js`:
    `TypeError: Cannot read properties of undefined (reading 'destroy')` from `Paginator.destroy`.
 5. Foliate-view strict EPUB/FB2/TXT tests are still skipped; only smoke reporting is active for that engine.
+
+## Private Fixture Workflow
+
+Place private/problem books under `dev/reader_fixtures/private/` and run:
+
+```bash
+cd miniapp && VITE_READER_UI=v2 npm run e2e:reader:all-engines
+```
+
+For each private fixture, the local report records detected format, metadata-or-fallback title source, cover image-or-fallback state, visible text length, horizontal overflow, progress visibility, Aa visibility, font-size behavior, restore behavior, screenshot path, and errors. It intentionally does not log raw book content.
 
 ## Bundle And CSP Risk
 

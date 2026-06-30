@@ -89,8 +89,13 @@ def write_epub(path: Path, *, title: str, chapters: list[str], bad_markup: bool 
 def chapter_html(title: str, heading: str, index: int, *, bad_markup: bool) -> str:
     bad_bits = (
         """
+    <style>body { transform: scale(10); }</style>
     <script>window.__bad_epub_script_ran = true</script>
+    <h1>Очень длинный русский заголовок без нормальных переносов который не должен разорвать мобильный экран читателя</h1>
     <p onclick="alert('bad')"><span><b>Bad markup paragraph</b></span> still needs readable output.</p>
+    <unknown-block><unknown-inline>Unknown nested markup text must remain readable as its own paragraph.</unknown-inline></unknown-block>
+    <custom-section><custom-title>Custom title text survives sanitizer.</custom-title><custom-body><odd-tag>Deeply nested unknown tag text survives without raw book styles.</odd-tag></custom-body></custom-section>
+    <p>ДлиннаяРусскаяСтрокаБезПробеловДолжнаПереноситьсяИДержатьсяВнутриЭкранаДлиннаяРусскаяСтрокаБезПробелов.</p>
     <iframe src="https://example.com"></iframe>
 """
         if bad_markup

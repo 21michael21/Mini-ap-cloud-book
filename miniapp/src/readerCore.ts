@@ -124,6 +124,11 @@ const EMPTY_SECTION_TITLE = "This section has no readable text";
 const EMPTY_SECTION_HINT = "Try next section";
 const MIN_READABLE_SECTION_CHARS = 8;
 const CLEAN_READER_TAGS = new Set([
+  "main",
+  "article",
+  "section",
+  "div",
+  "span",
   "h1",
   "h2",
   "h3",
@@ -153,7 +158,45 @@ const CLEAN_READER_TAGS = new Set([
   "small",
   "sup",
   "sub",
+  "u",
+  "s",
+  "mark",
+  "ruby",
+  "rt",
+  "rp",
+  "figure",
+  "figcaption",
+  "hr",
+  "dl",
+  "dt",
+  "dd",
 ]);
+const BLOCK_READER_TAGS = new Set([
+  "main",
+  "article",
+  "section",
+  "div",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "p",
+  "blockquote",
+  "ul",
+  "ol",
+  "li",
+  "pre",
+  "table",
+  "figure",
+  "figcaption",
+  "hr",
+  "dl",
+  "dt",
+  "dd",
+]);
+const INLINE_READER_TAGS = new Set(["a", "strong", "em", "b", "i", "small", "sup", "sub", "u", "s", "mark", "ruby", "rt", "rp", "span", "code", "br"]);
 const DROPPED_READER_TAGS = new Set([
   "script",
   "style",
@@ -277,12 +320,14 @@ export async function openFoliateReader(
       renderMode,
     );
     const renderedText = iframe.contentDocument?.body?.innerText?.trim() || `${EMPTY_SECTION_TITLE} ${EMPTY_SECTION_HINT}`;
+    const frameMetrics = readerFrameMetrics(iframe);
     warnReaderDiagnostics(
       normalizedFormat ?? (isTxt ? "txt" : "epub"),
       sections.length,
       sectionIndex,
-      renderedText.length,
-      iframe.contentDocument?.images.length ?? 0,
+      frameMetrics.textLength || renderedText.length,
+      frameMetrics.imageCount,
+      frameMetrics.overflowWidth,
     );
     onVisibleText?.(renderedText);
     emitStatus();
@@ -932,7 +977,7 @@ function appendCleanNode(source: Node, target: Node, cleanDoc: Document): void {
   const tagName = source.tagName.toLowerCase();
   if (DROPPED_READER_TAGS.has(tagName)) return;
   if (!CLEAN_READER_TAGS.has(tagName)) {
-    appendCleanChildren(source, target, cleanDoc);
+    appendUnknownCleanNode(source, target, cleanDoc);
     return;
   }
 
@@ -945,7 +990,7 @@ function appendCleanNode(source: Node, target: Node, cleanDoc: Document): void {
 
 function copyCleanReaderAttributes(source: Element, target: Element, tagName: string): void {
   if (tagName === "a") {
-    const href = source.getAttribute("href");
+    const href = source.getAttribute("href") ?? source.getAttribute("xlink:href");
     if (isSafeReaderLinkUrl(href)) {
       target.setAttribute("href", href!);
       target.setAttribute("rel", "noopener noreferrer");
@@ -953,7 +998,7 @@ function copyCleanReaderAttributes(source: Element, target: Element, tagName: st
     }
   }
   if (tagName === "img") {
-    const src = source.getAttribute("src");
+    const src = source.getAttribute("src") ?? source.getAttribute("href") ?? source.getAttribute("xlink:href");
     if (isSafeReaderImageUrl(src)) target.setAttribute("src", src!);
     for (const attr of ["alt", "title", "width", "height", "loading"]) copyPlainAttribute(source, target, attr);
     return;
@@ -966,6 +1011,31 @@ function copyCleanReaderAttributes(source: Element, target: Element, tagName: st
   }
   if (tagName === "li") copyPlainAttribute(source, target, "value");
   copyPlainAttribute(source, target, "title");
+}
+
+function appendUnknownCleanNode(source: Element, target: Node, cleanDoc: Document): void {
+  const readableText = source.textContent?.replace(/\s+/g, " ").trim() ?? "";
+  if (!readableText) {
+    appendCleanChildren(source, target, cleanDoc);
+    return;
+  }
+  const hasBlockChild = Array.from(source.children).some((child) => BLOCK_READER_TAGS.has(child.tagName.toLowerCase()));
+  if (hasBlockChild) {
+    appendCleanChildren(source, target, cleanDoc);
+    return;
+  }
+  const sourceTag = source.tagName.toLowerCase();
+  const wrapperTag = targetAllowsBlock(target) && !INLINE_READER_TAGS.has(sourceTag) ? "p" : "span";
+  const wrapper = cleanDoc.createElement(wrapperTag);
+  appendCleanChildren(source, wrapper, cleanDoc);
+  if (wrapper.textContent?.replace(/\s+/g, " ").trim() || wrapper.querySelector("img")) {
+    target.appendChild(wrapper);
+  }
+}
+
+function targetAllowsBlock(target: Node): boolean {
+  if (target.nodeType !== Node.ELEMENT_NODE || !(target instanceof Element)) return true;
+  return !INLINE_READER_TAGS.has(target.tagName.toLowerCase()) && target.tagName.toLowerCase() !== "p";
 }
 
 function copyPlainAttribute(source: Element, target: Element, name: string): void {
@@ -996,6 +1066,7 @@ function warnReaderDiagnostics(
   sectionIndex: number,
   textLength: number,
   imageCount: number,
+  overflowWidth: number,
 ): void {
   if (!import.meta.env.DEV) return;
   console.warn("[reader diagnostic]", {
@@ -1004,7 +1075,22 @@ function warnReaderDiagnostics(
     sectionIndex,
     textLength,
     imageCount,
+    overflowWidth,
   });
+}
+
+function readerFrameMetrics(iframe: HTMLIFrameElement): { textLength: number; imageCount: number; overflowWidth: number } {
+  const doc = iframe.contentDocument;
+  if (!doc) return { textLength: 0, imageCount: 0, overflowWidth: 0 };
+  const root = doc.scrollingElement ?? doc.documentElement;
+  const body = doc.body;
+  const scrollWidth = Math.max(root?.scrollWidth ?? 0, body?.scrollWidth ?? 0);
+  const clientWidth = Math.max(root?.clientWidth ?? 0, body?.clientWidth ?? 0, iframe.clientWidth);
+  return {
+    textLength: (body?.innerText ?? "").trim().length,
+    imageCount: doc.images.length,
+    overflowWidth: Math.max(0, Math.round(scrollWidth - clientWidth)),
+  };
 }
 
 async function responseMessage(response: Response): Promise<string> {

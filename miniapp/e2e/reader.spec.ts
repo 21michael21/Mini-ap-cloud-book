@@ -155,6 +155,22 @@ test.describe("reader e2e", () => {
     await expect(page.locator("#readerBottomLabel")).toContainText(/Section 2\/3/);
   });
 
+  test("Clean mode preserves dirty nested markup without horizontal overflow", async ({ page }, testInfo) => {
+    test.skip(experimentFlags.textReaderEngine !== "custom", "DOM-level clean markup gate targets the stable custom reader.");
+    test.skip(experimentFlags.textRenderMode !== "clean", "This gate verifies Clean Reading Mode.");
+    await openBook(page, books.badMarkup);
+    const frame = await waitForBookFrame(page);
+    await expectVisibleText(frame, 500);
+    const text = await frame.locator("body").innerText();
+    expect(text).toContain("Unknown nested markup text must remain readable as its own paragraph.");
+    expect(text).toContain("Custom title text survives sanitizer.");
+    expect(text).toContain("Deeply nested unknown tag text survives without raw book styles.");
+    await expect(frame.locator("script")).toHaveCount(0);
+    await expect(frame.locator("style")).toHaveCount(0);
+    expect(await frameOverflowWidth(frame)).toBeLessThanOrEqual(8);
+    await maybeScreenshot(page, testInfo, "reader-bad-markup-clean");
+  });
+
   test("Reader UI v2 keeps mobile chrome readable and stable", async ({ page }, testInfo) => {
     test.skip(!isReaderUiV2, "Reader UI v2 visual chrome test only runs for v2.");
     test.skip(experimentFlags.textReaderEngine === "foliate-view", "Iframe spacing checks target the stable custom reader.");
@@ -674,6 +690,15 @@ async function expectVisibleText(frame: FrameLocator, threshold: number): Promis
 
 async function bodyFontSize(frame: FrameLocator): Promise<number> {
   return frame.locator("body").evaluate((body) => Number.parseFloat(getComputedStyle(body).fontSize));
+}
+
+async function frameOverflowWidth(frame: FrameLocator): Promise<number> {
+  return frame.locator("body").evaluate((body) => {
+    const root = document.scrollingElement ?? document.documentElement;
+    const scrollWidth = Math.max(root.scrollWidth, body.scrollWidth);
+    const clientWidth = Math.max(root.clientWidth, body.clientWidth);
+    return Math.max(0, Math.round(scrollWidth - clientWidth));
+  });
 }
 
 async function scrollBookFrame(frame: FrameLocator, ratio: number): Promise<void> {

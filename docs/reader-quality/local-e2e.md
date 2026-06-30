@@ -121,14 +121,43 @@ reports/reader-experiments/private-fixtures-summary.json
 ```
 
 The report records only file names, detected format, booleans, visible text
-length, screenshots, errors, and selected engine/mode. It must not include raw
-book content.
+length, overflow width, screenshot paths, errors, and selected engine/mode. It
+also records whether the seeded book used extracted metadata or a fallback title
+and whether the library card displayed an extracted cover image or a generated
+fallback. It must not include raw book content.
+
+The private gate fails when a private book:
+
+- is not detected as EPUB, FB2, TXT, or PDF
+- does not open the reader
+- renders too little visible text, or a blank PDF stage
+- creates horizontal overflow in the reader
+- hides progress or Aa controls
+- cannot change font size for text formats
+- cannot restore position after close and reopen
+- cannot show either an authenticated cover image or a fallback cover
 
 To run only the private gate:
 
 ```bash
 cd miniapp
 npm run e2e:reader:private
+```
+
+To compare a problematic private book such as "Жила-была девочка" across the
+current engine matrix:
+
+```bash
+cd miniapp
+VITE_READER_UI=v2 npm run e2e:reader:all-engines
+```
+
+This writes per-mode private summaries named like:
+
+```text
+reports/reader-experiments/private-fixtures-summary-custom-clean-v2.json
+reports/reader-experiments/private-fixtures-summary-custom-original-v2.json
+reports/reader-experiments/private-fixtures-summary-foliate-view-clean-v2.json
 ```
 
 ## Full Local Quality Gate

@@ -54,7 +54,8 @@ body {
   line-height: 1.68;
   margin: 0;
   padding-bottom: clamp(112px, 18vh, 168px);
-  overflow-wrap: anywhere;
+  overflow-x: hidden;
+  overflow-wrap: break-word;
   hyphens: auto;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -91,6 +92,7 @@ html.reader-theme-sepia body {
   box-sizing: border-box;
   margin: 0 auto;
   max-width: 740px;
+  overflow-wrap: break-word;
   padding: 28px 20px clamp(118px, 20vh, 180px);
   width: 100%;
 }
@@ -173,6 +175,38 @@ h6 {
 
 p {
   margin: 0 0 1.05em;
+}
+
+div,
+section,
+article,
+main,
+figure,
+figcaption,
+dl {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+figure {
+  margin: 1.25em 0;
+}
+
+figcaption {
+  color: #675849;
+  font-size: 0.88em;
+  line-height: 1.45;
+  margin-top: -0.55em;
+  text-align: center;
+}
+
+dt {
+  font-weight: 600;
+  margin: 0.85em 0 0.2em;
+}
+
+dd {
+  margin: 0 0 0.85em 1.2em;
 }
 
 a {
@@ -272,7 +306,8 @@ table {
   margin: 1.25em 0;
   max-width: 100%;
   overflow-x: auto;
-  width: max-content;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
 }
 
 th,
@@ -281,6 +316,8 @@ td {
   padding: 0.55em 0.7em;
   text-align: left;
   vertical-align: top;
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 
 th {
@@ -317,6 +354,14 @@ html.reader-theme-sepia .reader-empty-section {
 html.reader-theme-sepia .reader-empty-section {
   background: #2d241a;
   color: #d0b994;
+}
+
+html.reader-theme-dark figcaption {
+  color: #c9b9a5;
+}
+
+html.reader-theme-sepia figcaption {
+  color: #c8ad84;
 }
 
 .reader-empty-section {
