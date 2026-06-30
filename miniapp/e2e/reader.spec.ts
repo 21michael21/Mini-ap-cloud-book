@@ -1050,8 +1050,13 @@ async function expectPdfEvictedCanvases(page: Page): Promise<void> {
 }
 
 async function expectPdfNormalPageDidNotRetry(page: Page): Promise<void> {
-  const retryCount = await page.locator(".pdf-page-shell").evaluate((shell: HTMLElement) => Number(shell.dataset.retryCount ?? 0));
+  const stats = await page.locator(".pdf-page-shell").evaluate((shell: HTMLElement) => ({
+    retryCount: Number(shell.dataset.retryCount ?? 0),
+    operatorListChecks: Number(shell.dataset.operatorListChecks ?? 0),
+  }));
+  const { retryCount, operatorListChecks } = stats;
   expect(retryCount).toBe(0);
+  expect(operatorListChecks).toBe(0);
 }
 
 async function canvasNonBlankScore(page: Page): Promise<number> {

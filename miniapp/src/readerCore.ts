@@ -125,6 +125,8 @@ const PDF_ZOOMED_MAX_DPR = 1.5;
 const PDF_CACHE_LIMIT = 3;
 const PDF_BLANK_WHITE_RATIO = 0.996;
 const PDF_BLANK_RETRY_WHITE_RATIO = 0.999;
+const PDF_RENDER_DETECTION_BUDGET_MS = 2500;
+const PDF_OPERATOR_LIST_MIN_BUDGET_MS = 250;
 const PDF_WARM_DELAY_MS = 140;
 const PDF_ZOOM_RENDER_DEBOUNCE_MS = 140;
 const EMPTY_SECTION_TITLE = "This section has no readable text";
@@ -425,6 +427,11 @@ export async function openPdfReader(
     whitePixelRatio: number;
     hasContent: boolean;
     retryAttempted: boolean;
+    renderMs: number;
+    contentCheckMs: number;
+    operatorListChecks: number;
+    contentCheckTimedOut: boolean;
+    contentCheckSkipped: boolean;
   };
   let pageNumber = parsePdfPage(restoreLocator, pdf.numPages);
   let requestedPage = pageNumber;
@@ -474,6 +481,7 @@ export async function openPdfReader(
   };
 
   const renderPageToCanvas = async (page: number, force = false, trimAroundPage = page): Promise<RenderedPdfPage> => {
+    const renderStartedAt = performance.now();
     const nextPageNumber = Math.min(Math.max(page, 1), pdf.numPages);
     const pdfPage = await pdf.getPage(nextPageNumber);
     const baseViewport = pdfPage.getViewport({ scale: 1 });
@@ -494,10 +502,30 @@ export async function openPdfReader(
     let blankStats = samplePdfCanvasBlankness(renderCanvas);
     let hasContent = false;
     let retryAttempted = false;
+    let contentCheckMs = 0;
+    let operatorListChecks = 0;
+    let contentCheckTimedOut = false;
+    let contentCheckSkipped = false;
     if (blankStats.isBlank && blankStats.whitePixelRatio >= PDF_BLANK_RETRY_WHITE_RATIO && !force) {
-      hasContent = await pdfPageHasDetectableContent(pdfPage);
+      const remainingBudgetMs = PDF_RENDER_DETECTION_BUDGET_MS - (performance.now() - renderStartedAt);
+      if (remainingBudgetMs > 0) {
+        const contentCheck = await pdfPageHasDetectableContent(pdfPage, remainingBudgetMs);
+        hasContent = contentCheck.hasContent;
+        contentCheckMs = contentCheck.elapsedMs;
+        operatorListChecks = contentCheck.usedOperatorList ? 1 : 0;
+        contentCheckTimedOut = contentCheck.timedOut;
+        contentCheckSkipped = contentCheck.skipped;
+      } else {
+        contentCheckSkipped = true;
+      }
     }
-    if (blankStats.isBlank && blankStats.whitePixelRatio >= PDF_BLANK_RETRY_WHITE_RATIO && hasContent && !force) {
+    if (
+      blankStats.isBlank
+      && blankStats.whitePixelRatio >= PDF_BLANK_RETRY_WHITE_RATIO
+      && hasContent
+      && !force
+      && performance.now() - renderStartedAt < PDF_RENDER_DETECTION_BUDGET_MS
+    ) {
       retryAttempted = true;
       blankRetryCount += 1;
       const safeViewport = pdfPage.getViewport({ scale: fitWidthScale });
@@ -515,6 +543,7 @@ export async function openPdfReader(
         releaseCanvas(retryCanvas);
       }
     }
+    const renderMs = performance.now() - renderStartedAt;
     if (import.meta.env.DEV) {
       console.warn(
         "[pdf diagnostic]",
@@ -526,6 +555,11 @@ export async function openPdfReader(
           whitePixelRatio: blankStats.whitePixelRatio,
           hasContent,
           retryAttempted,
+          renderMs: Number(renderMs.toFixed(1)),
+          contentCheckMs: Number(contentCheckMs.toFixed(1)),
+          operatorListChecks,
+          contentCheckTimedOut,
+          contentCheckSkipped,
           cacheSize: pageCache.size,
         }),
       );
@@ -539,6 +573,11 @@ export async function openPdfReader(
       whitePixelRatio: blankStats.whitePixelRatio,
       hasContent,
       retryAttempted,
+      renderMs,
+      contentCheckMs,
+      operatorListChecks,
+      contentCheckTimedOut,
+      contentCheckSkipped,
     };
     releaseRenderedPdfPage(pageCache.get(cacheKey));
     pageCache.set(cacheKey, rendered);
@@ -619,6 +658,11 @@ export async function openPdfReader(
     pageShell.dataset.whitePixelRatio = rendered.whitePixelRatio.toFixed(4);
     pageShell.dataset.renderDpr = rendered.dpr.toFixed(2);
     pageShell.dataset.retryAttempted = rendered.retryAttempted ? "true" : "false";
+    pageShell.dataset.renderMs = rendered.renderMs.toFixed(1);
+    pageShell.dataset.contentCheckMs = rendered.contentCheckMs.toFixed(1);
+    pageShell.dataset.operatorListChecks = String(rendered.operatorListChecks);
+    pageShell.dataset.contentCheckTimedOut = rendered.contentCheckTimedOut ? "true" : "false";
+    pageShell.dataset.contentCheckSkipped = rendered.contentCheckSkipped ? "true" : "false";
     completedRenderId = renderId;
     trimPageCache(pageNumber);
     warmAdjacentPages(pageNumber);
@@ -771,15 +815,74 @@ function samplePdfCanvasBlankness(canvas: HTMLCanvasElement): { isBlank: boolean
   return { isBlank: whitePixelRatio >= PDF_BLANK_WHITE_RATIO, whitePixelRatio };
 }
 
+type PdfContentCheckResult = {
+  hasContent: boolean;
+  usedOperatorList: boolean;
+  timedOut: boolean;
+  skipped: boolean;
+  elapsedMs: number;
+};
+
+const timeoutResult = Symbol("timeout");
+
+async function withTimeout<T>(promise: Promise<T | null>, timeoutMs: number): Promise<T | null | typeof timeoutResult> {
+  if (timeoutMs <= 0) return timeoutResult;
+  let timer = 0;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<typeof timeoutResult>((resolve) => {
+        timer = window.setTimeout(() => resolve(timeoutResult), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) window.clearTimeout(timer);
+  }
+}
+
 async function pdfPageHasDetectableContent(pdfPage: {
   getTextContent?: () => Promise<{ items?: unknown[] }>;
   getOperatorList?: () => Promise<{ fnArray?: unknown[] }>;
-}): Promise<boolean> {
-  const [textContent, operatorList] = await Promise.all([
+}, budgetMs: number): Promise<PdfContentCheckResult> {
+  const startedAt = performance.now();
+  const done = (result: Omit<PdfContentCheckResult, "elapsedMs">): PdfContentCheckResult => ({
+    ...result,
+    elapsedMs: performance.now() - startedAt,
+  });
+
+  if (budgetMs <= 0) {
+    return done({ hasContent: false, usedOperatorList: false, timedOut: false, skipped: true });
+  }
+
+  const textContent = await withTimeout(
     pdfPage.getTextContent?.().catch(() => null) ?? Promise.resolve(null),
-    pdfPage.getOperatorList?.().catch(() => null) ?? Promise.resolve(null),
-  ]);
-  return Boolean((textContent?.items?.length ?? 0) > 0 || (operatorList?.fnArray?.length ?? 0) > 0);
+    budgetMs,
+  );
+  if (textContent === timeoutResult) {
+    return done({ hasContent: false, usedOperatorList: false, timedOut: true, skipped: false });
+  }
+  if ((textContent?.items?.length ?? 0) > 0) {
+    return done({ hasContent: true, usedOperatorList: false, timedOut: false, skipped: false });
+  }
+
+  const remainingBudgetMs = budgetMs - (performance.now() - startedAt);
+  if (!pdfPage.getOperatorList || remainingBudgetMs < PDF_OPERATOR_LIST_MIN_BUDGET_MS) {
+    return done({ hasContent: false, usedOperatorList: false, timedOut: remainingBudgetMs <= 0, skipped: remainingBudgetMs > 0 });
+  }
+
+  const operatorList = await withTimeout(
+    pdfPage.getOperatorList().catch(() => null),
+    remainingBudgetMs,
+  );
+  if (operatorList === timeoutResult) {
+    return done({ hasContent: false, usedOperatorList: true, timedOut: true, skipped: false });
+  }
+  return done({
+    hasContent: (operatorList?.fnArray?.length ?? 0) > 0,
+    usedOperatorList: true,
+    timedOut: false,
+    skipped: false,
+  });
 }
 
 async function makePlainTextBook(file: File): Promise<PlainTextBook> {
