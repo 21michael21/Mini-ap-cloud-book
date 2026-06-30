@@ -90,14 +90,27 @@ test.describe("reader e2e", () => {
     const frame = await waitForBookFrame(page);
     await expectVisibleText(frame, 400);
     await expect(page.locator("#readerBottomLabel")).toContainText(/Section|%/);
+    await maybeScreenshot(page, testInfo, "text-controls-visible");
+    await page.locator("#readerStage").click({ position: { x: 320, y: 360 } }).catch(() => undefined);
+    await page.waitForTimeout(200);
+    await maybeScreenshot(page, testInfo, "text-controls-hidden");
+    await page.locator("#readerStage").click({ position: { x: 320, y: 360 } }).catch(() => undefined);
+    await expect(page.locator("#readerSettingsButton")).toBeVisible();
 
     const before = await bodyFontSize(frame);
     await page.locator("#readerSettingsButton").click();
+    await expect(page.locator(".reader-settings-sheet")).toBeVisible();
+    await maybeScreenshot(page, testInfo, "text-aa-settings-sheet");
     await page.locator("#readerFontUp").click();
     await expect.poll(() => bodyFontSize(frame)).toBeGreaterThan(before);
     await page.locator('[data-reader-theme="sepia"]').click();
     await expectReadableButton(page.locator("#readerSettingsButton"));
     await closeSheet(page);
+    if (await page.locator("#readerMark").isVisible().catch(() => false)) {
+      await page.locator("#readerMark").click();
+      await maybeScreenshotIfVisible(page, testInfo, ".bottom-sheet", "notes-sheet");
+      await closeSheet(page);
+    }
 
     await page.locator("#readerNext").click();
     await expect(page.locator("#readerBottomLabel")).toContainText(/Section 2\/3/);
@@ -159,10 +172,12 @@ test.describe("reader e2e", () => {
     await expect(page.locator("#readerBottomLabel")).toContainText(/1 \/ 2/);
     await expect(page.locator("#readerPdfZoomIn")).toBeVisible();
     await expect(canvas).toPassCanvasDprCheck();
+    await maybeScreenshot(page, testInfo, "pdf-fit-width");
 
     const widthBefore = await canvasCssWidth(page);
     await page.locator("#readerPdfZoomIn").click();
     await expect.poll(() => canvasCssWidth(page)).toBeGreaterThan(widthBefore);
+    await maybeScreenshot(page, testInfo, "pdf-zoomed");
     await page.locator("#readerNext").click();
     await expect(page.locator("#readerBottomLabel")).toContainText(/2 \/ 2/);
     await page.locator("#readerPrev").click();
@@ -180,8 +195,10 @@ test.describe("reader e2e", () => {
     await openLibrary(page);
     const cover = page.locator(".book-row", { hasText: books.rename }).locator(".book-cover").first();
     await expect(cover).toBeVisible();
+    await maybeScreenshot(page, testInfo, "library-card-cover-fallback");
 
     await openBookActions(page, books.rename);
+    await maybeScreenshot(page, testInfo, "book-actions-sheet");
     await page.locator("#sheetEdit").click();
     await page.locator("#bookTitleInput").fill("Reader E2E Renamed EPUB");
     await page.locator("#confirmBookEdit").click();
@@ -407,6 +424,17 @@ async function maybeScreenshot(page: Page, testInfo: { project: { name: string }
     path: resolve(screenshotDir, `${testInfo.project.name}-${name}.png`),
     fullPage: true,
   });
+}
+
+async function maybeScreenshotIfVisible(
+  page: Page,
+  testInfo: { project: { name: string } },
+  selector: string,
+  name: string,
+): Promise<void> {
+  if (!saveScreenshots) return;
+  if (!(await page.locator(selector).isVisible().catch(() => false))) return;
+  await maybeScreenshot(page, testInfo, name);
 }
 
 async function saveExperimentScreenshot(

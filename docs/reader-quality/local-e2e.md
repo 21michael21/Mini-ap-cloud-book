@@ -84,8 +84,21 @@ Screenshots are written to:
 tests/screenshots/artifacts/
 ```
 
-They are gitignored. Curated baselines can be added later under
+They are gitignored and are for human review today. Do not deploy reader changes
+if these screenshots look broken, even when automated tests pass. Curated
+baselines and visual-diff thresholds can be added later under
 `tests/screenshots/baseline/`.
+
+The screenshot pass captures:
+
+- text reader controls visible
+- text reader controls hidden
+- Aa/settings sheet
+- PDF fit width
+- PDF zoomed
+- library card with cover or fallback
+- book actions sheet
+- notes/bookmark sheet when available
 
 ## Private Problem Books
 
@@ -98,6 +111,25 @@ dev/reader_fixtures/private/
 Never commit copyrighted, private, or user-supplied books. When a private file
 reveals a durable bug, create a tiny synthetic public fixture in
 `dev/generate_reader_fixtures.py` instead.
+
+When private files are present, the local quality gate automatically seeds them
+into an isolated SQLite database and runs a mandatory reader check. The report
+is written to:
+
+```text
+reports/reader-experiments/private-fixtures-summary.json
+```
+
+The report records only file names, detected format, booleans, visible text
+length, screenshots, errors, and selected engine/mode. It must not include raw
+book content.
+
+To run only the private gate:
+
+```bash
+cd miniapp
+npm run e2e:reader:private
+```
 
 ## Full Local Quality Gate
 
@@ -113,6 +145,29 @@ This runs:
 - `cd miniapp && npm run build`
 - `cd miniapp && npm run build:harness`
 - `cd miniapp && npm run e2e:reader`
+- private fixture checks if `dev/reader_fixtures/private/` contains files
+
+To include screenshot capture in the same gate:
+
+```bash
+READER_SCREENSHOTS=1 scripts/local_quality_gate.sh
+# or
+scripts/local_quality_gate.sh --screenshots
+```
+
+## Deploy Rule
+
+Reader changes must not go to VDS until all applicable local checks pass:
+
+- public reader fixtures
+- private problematic fixtures, when present
+- screenshot review by a human
+
+After any deploy, verify the running commit before phone testing:
+
+```bash
+curl -fsS https://telegram-library.89.124.84.4.sslip.io/api/version
+```
 
 ## Interpreting Failures
 

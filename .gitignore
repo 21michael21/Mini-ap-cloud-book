@@ -20,6 +20,9 @@ dev/reader_fixtures/private/*
 dev/reader_e2e.sqlite3
 dev/reader_e2e_file_cache/
 dev/reader_e2e_env.json
+dev/private_reader_e2e.sqlite3
+dev/private_reader_e2e_file_cache/
+dev/private_reader_e2e_env.json
 miniapp/node_modules/
 miniapp/dist/
 miniapp/dist-harness/

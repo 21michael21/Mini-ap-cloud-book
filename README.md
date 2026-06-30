@@ -278,6 +278,33 @@ curl -fsS <BACKEND_PUBLIC_URL>/api/version
 
 The bot also responds to `/version` with the bot/backend URLs and build metadata configured for the running service.
 
+### Reader Quality Gate Before VDS Deploy
+
+Reader changes must stay local until the quality gate is clean. Run:
+
+```bash
+scripts/local_quality_gate.sh
+cd miniapp && npm run e2e:reader:screenshots
+```
+
+If `dev/reader_fixtures/private/` contains problematic real books, the gate
+automatically includes them and writes:
+
+```text
+reports/reader-experiments/private-fixtures-summary.json
+```
+
+The screenshot artifacts are written to:
+
+```text
+tests/screenshots/artifacts/
+```
+
+They are for human review right now. Do not deploy if public fixtures fail,
+private fixtures fail, or screenshots show broken layout. After deploying, check
+`/api/version` before phone testing so the VDS commit matches the commit you
+intended to test.
+
 ## Telegram Client E2E Checklist
 
 Run this in the real Telegram mobile client after deploy:
@@ -378,6 +405,12 @@ Reader A/B flags are for local experiments only and must not be set on VDS until
 a reader decision is made. See `docs/reader-quality/ab-reader-experiments.md`
 for `VITE_TEXT_READER_ENGINE`, `VITE_TEXT_RENDER_MODE`, `VITE_PDF_READER_MODE`,
 and `VITE_READER_UI`.
+
+Private reader fixtures are local-only and gitignored. If files exist in
+`dev/reader_fixtures/private/`, `scripts/local_quality_gate.sh` runs the private
+fixture gate and writes
+`reports/reader-experiments/private-fixtures-summary.json` without logging raw
+book content.
 
 The backend file cache is bounded by `FILE_CACHE_MAX_BYTES` and `FILE_CACHE_MAX_AGE_SECONDS`.
 Cleanup runs around file fetches and removes expired files first, then least-recently-used files until the cache is under the size cap.
