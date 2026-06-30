@@ -334,7 +334,7 @@ async function moveBookToFolder(book: Book, folderId: number | null) {
     replaceBookInState(updated);
     activeSheet = null;
     hapticNotification("success");
-    showToast("Book moved", "success");
+    showToast("Moved", "success");
     render();
   } catch (error) {
     hapticNotification("error");
@@ -440,7 +440,7 @@ async function removeBookFromLibrary(book: Book) {
     removeBookFromState(book.id);
     activeSheet = null;
     hapticNotification("success");
-    showToast("Book removed", "success");
+    showToast("Removed", "success");
     render();
   } catch (error) {
     hapticNotification("error");
@@ -2262,6 +2262,7 @@ function writeLibrarySort() {
 }
 
 function setReaderTheme(theme: ReaderContentTheme) {
+  if (readerTheme !== theme) hapticSelection();
   readerTheme = theme;
   window.localStorage.setItem("telegram-library-reader-theme", readerTheme);
   applyReaderTheme();
@@ -2300,13 +2301,17 @@ function isReaderUiV2(): boolean {
 }
 
 function changeReaderFontSize(delta: number) {
-  readerFontSizePx = clamp(readerFontSizePx + delta, 15, 26);
+  const nextSize = clamp(readerFontSizePx + delta, 15, 26);
+  if (nextSize === readerFontSizePx) return;
+  hapticSelection();
+  readerFontSizePx = nextSize;
   window.localStorage.setItem("telegram-library-reader-font-size", String(readerFontSizePx));
   activeTextReader?.setFontSize(readerFontSizePx);
   scheduleReaderSettingsSync();
 }
 
 function setReaderLineSpacing(lineSpacing: ReaderLineSpacing) {
+  if (readerLineSpacing !== lineSpacing) hapticSelection();
   readerLineSpacing = lineSpacing;
   window.localStorage.setItem("telegram-library-reader-line-spacing", readerLineSpacing);
   activeTextReader?.setLineSpacing(readerLineSpacing);
@@ -2314,6 +2319,7 @@ function setReaderLineSpacing(lineSpacing: ReaderLineSpacing) {
 }
 
 function setReaderMargin(margin: ReaderMargin) {
+  if (readerMargin !== margin) hapticSelection();
   readerMargin = margin;
   window.localStorage.setItem("telegram-library-reader-margin", readerMargin);
   activeTextReader?.setMargin(readerMargin);
@@ -2321,6 +2327,7 @@ function setReaderMargin(margin: ReaderMargin) {
 }
 
 function resetReaderTextSettings() {
+  hapticSelection();
   readerFontSizePx = 18;
   readerLineSpacing = "normal";
   readerMargin = "normal";
@@ -2340,6 +2347,7 @@ function resetReaderTextSettings() {
 async function changePdfZoom(direction: -1 | 1) {
   const reader = activePdfReader;
   if (!reader) return;
+  hapticSelection();
   if (direction < 0) await reader.zoomOut();
   else await reader.zoomIn();
   pdfZoom = reader.getZoom();
@@ -2350,6 +2358,7 @@ async function changePdfZoom(direction: -1 | 1) {
 async function resetPdfZoom() {
   const reader = activePdfReader;
   if (!reader) return;
+  hapticSelection();
   pdfZoom = 1;
   window.localStorage.setItem("telegram-library-pdf-zoom", String(pdfZoom));
   await reader.setZoom(pdfZoom);

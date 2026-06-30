@@ -65,6 +65,11 @@
   --space-7: 28px;
   --radius-sm: 14px;
   --radius: 16px;
+  --motion-fast: 120ms;
+  --motion-normal: 180ms;
+  --motion-sheet: 220ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-press: cubic-bezier(0.2, 0.7, 0.2, 1);
   --bg: #0b0d12;
   --surface: #151821;
   --surface-2: #1c2030;
@@ -101,6 +106,9 @@
   --button-danger-bg: #f07b7d;
   --button-danger-text: #110d0e;
   --danger-soft-text: #ffb9ba;
+  --shadow-card: 0 12px 34px rgba(0, 0, 0, 0.2);
+  --shadow-sheet: 0 -22px 54px -18px rgba(0, 0, 0, 0.72);
+  --shadow-control: 0 10px 28px rgba(0, 0, 0, 0.16);
   font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -181,8 +189,8 @@ input:focus-visible {
   min-height: 100vh;
   background: var(--bg);
   transition:
-    background-color 180ms ease,
-    color 180ms ease;
+    background-color var(--motion-normal) var(--ease-out),
+    color var(--motion-normal) var(--ease-out);
 }
 
 .screen {
@@ -281,11 +289,13 @@ input:focus-visible {
   color: inherit;
   text-align: left;
   transition:
-    transform 160ms ease,
-    border-color 160ms ease,
-    background-color 160ms ease;
+    transform var(--motion-fast) var(--ease-press),
+    border-color var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-normal) var(--ease-out);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  will-change: transform;
 }
 
 .continue-hero:active {
@@ -592,9 +602,10 @@ input:focus-visible {
   color: inherit;
   text-align: left;
   scroll-snap-align: start;
-  transition: transform 160ms ease;
+  transition: transform var(--motion-fast) var(--ease-press);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  will-change: transform;
 }
 
 .recent-card:active {
@@ -634,12 +645,13 @@ input:focus-visible {
   background: var(--surface);
   color: var(--text);
   transition:
-    transform 160ms ease,
-    border-color 160ms ease,
-    background-color 160ms ease,
-    color 160ms ease;
+    transform var(--motion-fast) var(--ease-press),
+    border-color var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  will-change: transform;
 }
 
 .folder-chip:active {
@@ -842,6 +854,13 @@ input:focus-visible {
   border-radius: 14px;
   background: var(--surface);
   color: inherit;
+  transition:
+    transform var(--motion-fast) var(--ease-press),
+    border-color var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-normal) var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .row-menu-button {
@@ -857,6 +876,12 @@ input:focus-visible {
   background: var(--button-bg);
   color: var(--button-text);
   box-shadow: inset 0 0 0 1px var(--accent-soft);
+  transition:
+    transform var(--motion-fast) var(--ease-press),
+    border-color var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-normal) var(--ease-out);
+  will-change: transform;
 }
 
 .row-menu-button:focus-visible {
@@ -874,6 +899,7 @@ input:focus-visible {
 .book-row:active {
   border-color: var(--accent);
   background: var(--surface-3);
+  transform: scale(0.995);
 }
 
 .row-body {
@@ -963,7 +989,7 @@ mark {
 }
 
 .bar-fill {
-  animation: fillTo 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: fillTo var(--motion-sheet) var(--ease-press) both;
 }
 
 .progress-0 {
@@ -1168,6 +1194,21 @@ mark {
   min-height: 44px;
   border-radius: 13px;
   font-weight: 600;
+  transition:
+    transform var(--motion-fast) var(--ease-press),
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    opacity var(--motion-fast) var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.ghost-button:active,
+.primary-action:active,
+.danger-action:active,
+.secondary:active {
+  transform: scale(0.97);
 }
 
 .ghost-button {
@@ -1204,6 +1245,13 @@ mark {
   background: var(--button-danger-bg);
   color: var(--button-danger-text);
   font-weight: 600;
+  transition:
+    transform var(--motion-fast) var(--ease-press),
+    background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    opacity var(--motion-fast) var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .danger-action:disabled {
@@ -1252,7 +1300,8 @@ mark {
   z-index: 20;
   inset: 0;
   background: rgba(7, 9, 13, 0.55);
-  animation: scrimIn 220ms ease both;
+  backdrop-filter: blur(5px);
+  animation: scrimIn var(--motion-sheet) var(--ease-out) both;
 }
 
 .bottom-sheet {
@@ -1260,11 +1309,13 @@ mark {
   right: 0;
   bottom: 0;
   left: 0;
-  padding: 10px 16px 28px;
-  border-top: 1px solid var(--line);
+  padding: 10px 16px calc(28px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   border-radius: 24px 24px 0 0;
   background: var(--surface);
-  box-shadow: 0 -20px 50px -10px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-sheet);
+  transform: translateZ(0);
+  will-change: transform, opacity;
 }
 
 .sheet-handle {
@@ -1273,6 +1324,7 @@ mark {
   margin: 6px auto 16px;
   border-radius: 999px;
   background: var(--line-2);
+  opacity: 0.9;
 }
 
 .sheet-book {
@@ -1372,6 +1424,13 @@ mark {
   color: var(--button-text);
   font-weight: 600;
   text-align: left;
+  transition:
+    transform var(--motion-fast) var(--ease-press),
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .sheet-action-copy {
@@ -1398,6 +1457,7 @@ mark {
 
 .sheet-action:active {
   background: var(--button-bg-pressed);
+  transform: scale(0.985);
 }
 
 .sheet-action:disabled {
@@ -1580,6 +1640,8 @@ mark {
   font-weight: 600;
   text-align: center;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
+  pointer-events: none;
+  animation: toastIn var(--motion-sheet) var(--ease-out) both;
 }
 
 .toast--success {
@@ -1757,10 +1819,13 @@ body:not(.reader-light):not(.reader-sepia) .reader {
   border: 1px solid var(--button-border);
   border-radius: 13px;
   background: var(--surface);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-control);
   transition:
-    opacity 180ms ease,
-    transform 180ms ease;
+    opacity var(--motion-normal) var(--ease-out),
+    transform var(--motion-normal) var(--ease-out),
+    background-color var(--motion-normal) var(--ease-out),
+    box-shadow var(--motion-normal) var(--ease-out);
+  will-change: transform, opacity;
 }
 
 .reader-toolbar.is-hidden {
@@ -1783,6 +1848,14 @@ body:not(.reader-light):not(.reader-sepia) .reader {
   background: var(--button-bg);
   color: var(--button-text);
   white-space: nowrap;
+  transition:
+    transform var(--motion-fast) var(--ease-press),
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    opacity var(--motion-fast) var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .secondary:disabled {
@@ -1790,6 +1863,14 @@ body:not(.reader-light):not(.reader-sepia) .reader {
   color: var(--button-disabled-text);
   cursor: not-allowed;
   opacity: 1;
+}
+
+.secondary:disabled:active,
+.ghost-button:disabled:active,
+.primary-action:disabled:active,
+.danger-action:disabled:active,
+.sheet-action:disabled:active {
+  transform: none;
 }
 
 .reader-progress {
@@ -1855,7 +1936,7 @@ body:not(.reader-light):not(.reader-sepia) .reader {
   border-radius: 15px;
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   backdrop-filter: blur(18px);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.14);
+  box-shadow: var(--shadow-control);
 }
 
 .reader-v2 .reader-toolbar .secondary {
@@ -1970,7 +2051,13 @@ foliate-view {
   border: 1px solid var(--button-border);
   border-radius: 16px;
   background: var(--surface);
-  box-shadow: 0 -10px 26px rgba(0, 0, 0, 0.16);
+  box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.16);
+  transition:
+    opacity var(--motion-normal) var(--ease-out),
+    transform var(--motion-normal) var(--ease-out),
+    background-color var(--motion-normal) var(--ease-out),
+    box-shadow var(--motion-normal) var(--ease-out);
+  transform: translateZ(0);
 }
 
 .reader-bottom-progress--v2 {
@@ -1984,7 +2071,7 @@ foliate-view {
   border-color: color-mix(in srgb, var(--button-border) 78%, transparent);
   background: color-mix(in srgb, var(--surface) 90%, transparent);
   backdrop-filter: blur(18px);
-  box-shadow: 0 -10px 26px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.14);
 }
 
 .reader-bottom-progress--v2.reader-bottom-progress--pdf {
@@ -2059,6 +2146,12 @@ foliate-view {
   height: 5px;
 }
 
+.reader-progress-track .progress-meter {
+  transition:
+    width var(--motion-normal) var(--ease-out),
+    transform var(--motion-normal) var(--ease-out);
+}
+
 .reader-hint {
   position: fixed;
   z-index: 6;
@@ -2082,6 +2175,7 @@ foliate-view {
   max-height: min(78vh, 620px);
   overflow: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .reader-setting-row {
@@ -2093,6 +2187,9 @@ foliate-view {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--surface-2);
+  transition:
+    background-color var(--motion-normal) var(--ease-out),
+    border-color var(--motion-normal) var(--ease-out);
 }
 
 .reader-setting-row > span {
@@ -2150,10 +2247,10 @@ body.reader-sepia .reader-settings-sheet .sort-button.active {
 .reader-settings-sheet .ghost-button,
 .reader-settings-sheet .sort-button {
   transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-press);
 }
 
 .reader-settings-sheet .sort-button.active:active {
@@ -2170,6 +2267,7 @@ body.reader-sepia .reader-settings-sheet .sort-button.active {
   margin: 0 auto;
   padding-bottom: var(--reader-bottom-clearance);
   border-radius: 12px;
+  transition: opacity var(--motion-normal) var(--ease-out);
 }
 
 .pdf-canvas {
@@ -2182,6 +2280,9 @@ body.reader-sepia .reader-settings-sheet .sort-button.active {
   box-shadow:
     0 18px 44px rgba(0, 0, 0, 0.28),
     0 2px 8px rgba(0, 0, 0, 0.18);
+  transition:
+    opacity var(--motion-normal) var(--ease-out),
+    box-shadow var(--motion-normal) var(--ease-out);
 }
 
 body.reader-light .pdf-canvas {
@@ -2209,11 +2310,15 @@ body.reader-sepia .pdf-canvas {
   background: linear-gradient(110deg, transparent 20%, rgba(139, 155, 255, 0.2) 50%, transparent 80%);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 160ms ease;
+  transition: opacity var(--motion-normal) var(--ease-out);
 }
 
 .pdf-page-shell.is-loading::after {
   opacity: 0.55;
+}
+
+.pdf-page-shell.is-loading .pdf-canvas {
+  opacity: 0.72;
 }
 
 .pdf-blank-label {
@@ -2242,7 +2347,7 @@ body.reader-sepia .pdf-canvas {
 }
 
 .card-in {
-  animation: cardIn 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: cardIn var(--motion-sheet) var(--ease-press) both;
 }
 
 .delay-0 {
@@ -2274,7 +2379,7 @@ body.reader-sepia .pdf-canvas {
 }
 
 .sheet-up {
-  animation: sheetUp 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: sheetUp var(--motion-sheet) var(--ease-out) both;
 }
 
 @keyframes shimmer {
@@ -2344,10 +2449,23 @@ body.reader-sepia .pdf-canvas {
 
 @keyframes sheetUp {
   from {
+    opacity: 0;
     transform: translateY(100%);
   }
   to {
+    opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 

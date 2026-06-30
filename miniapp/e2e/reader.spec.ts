@@ -99,6 +99,7 @@ test.describe("reader e2e", () => {
     if (isReaderUiV2) {
       await expect(page.locator("#readerHint")).toContainText("Tap the page for controls. Use Aa to change reading settings.");
       await maybeScreenshot(page, testInfo, "reader-v2-text-controls");
+      await maybeScreenshot(page, testInfo, "reader-smooth-controls-visible");
     } else {
       await maybeScreenshot(page, testInfo, "text-controls-visible");
     }
@@ -121,6 +122,7 @@ test.describe("reader e2e", () => {
       await expect(page.locator("[data-reader-line='spacious']")).toBeVisible();
       await expect(page.locator("[data-reader-margin='wide']")).toBeVisible();
       await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "reader-v2-aa-sheet");
+      await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "settings-sheet");
     } else {
       await maybeScreenshot(page, testInfo, "text-aa-settings-sheet");
     }
@@ -141,7 +143,9 @@ test.describe("reader e2e", () => {
       } else {
         await maybeScreenshotIfVisible(page, testInfo, ".bottom-sheet", "notes-sheet");
       }
-      await closeSheet(page);
+      await page.locator("#confirmNote").click();
+      await expect(page.locator(".toast")).toContainText("Bookmark saved");
+      await maybeScreenshot(page, testInfo, "toast");
     }
 
     await page.locator("#readerNext").click();
@@ -288,6 +292,19 @@ test.describe("reader e2e", () => {
     await expect.poll(() => frameScrollRatio(restoredFrame)).toBeGreaterThan(0.2);
   });
 
+  test("reader controls do not duplicate listeners after reopening", async ({ page }) => {
+    test.skip(experimentFlags.textReaderEngine === "foliate-view", "Listener stability targets the stable custom reader.");
+    await resetBookPosition("multi_section.epub", JSON.stringify({ type: "text", sectionIndex: 0, scrollRatio: 0 }), 0);
+    await openBook(page, books.epub);
+    await expect(page.locator("#readerBottomLabel")).toContainText(/Section 1\/3/);
+    await leaveReader(page);
+    await openBook(page, books.epub);
+    await page.locator("#readerNext").click();
+    await expect(page.locator("#readerBottomLabel")).toContainText(/Section 2\/3/);
+    await page.locator("#readerNext").click();
+    await expect(page.locator("#readerBottomLabel")).toContainText(/Section 3\/3/);
+  });
+
   test("PDF opens high-DPI, zooms, navigates, and restores page", async ({ page }, testInfo) => {
     await resetBookPosition("small.pdf", "1", 0);
     await page.addInitScript(() => window.localStorage.setItem("telegram-library-pdf-zoom", "1"));
@@ -300,6 +317,7 @@ test.describe("reader e2e", () => {
     await expectPdfFitWidth(page);
     await expect.poll(() => canvasNonBlankScore(page)).toBeGreaterThan(20);
     await maybeScreenshot(page, testInfo, "pdf-page-frame");
+    await maybeScreenshot(page, testInfo, "pdf-loading-page-frame");
     await maybeScreenshot(page, testInfo, "pdf-fit-width");
     if (isReaderUiV2) await maybeScreenshot(page, testInfo, "reader-v2-pdf");
 
@@ -390,6 +408,7 @@ test.describe("reader e2e", () => {
     await expect(pdfRow).toBeVisible();
     await expectFallbackCover(pdfRow);
     await maybeScreenshot(page, testInfo, "library-with-fallback-covers");
+    await maybeScreenshot(page, testInfo, "library-cards");
     await page.unroute("**/api/books/*/cover");
   });
 
