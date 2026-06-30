@@ -1334,7 +1334,11 @@ function renderReader(book: Book) {
   appEl.innerHTML = `
     <div class="reader-toolbar" id="readerToolbar">
       <button class="secondary" id="backButton" type="button" aria-label="Back">${icon("arrowLeft")}<span>Back</span></button>
-      <button class="secondary reader-mark-button" id="readerMark" type="button" aria-label="Save bookmark">${icon("bookmark")}<span>Mark</span></button>
+      ${
+        isTextReader
+          ? `<button class="secondary reader-mark-button" id="readerMark" type="button" aria-label="Save bookmark">${icon("bookmark")}<span>Mark</span></button>`
+          : ""
+      }
       ${
         isTextReader
           ? `<button class="secondary reader-font-button" id="readerFontDown" type="button" aria-label="Decrease font size">A-</button>`
@@ -1348,7 +1352,7 @@ function renderReader(book: Book) {
           ? `<button class="secondary reader-font-button" id="readerFontUp" type="button" aria-label="Increase font size">A+</button>`
           : `<button class="secondary reader-zoom-button" id="readerZoomIn" type="button" aria-label="Zoom in">+</button>`
       }
-      <button class="secondary reader-theme-button" id="readerThemeButton" type="button">Theme</button>
+      ${isTextReader ? `<button class="secondary reader-theme-button" id="readerThemeButton" type="button">Theme</button>` : ""}
     </div>
     <div class="reader-stage" id="readerStage"></div>
     ${renderToast()}
@@ -1501,7 +1505,7 @@ function renderReaderError(stage: HTMLElement, book: Book, error: unknown) {
     return;
   }
 
-  const { title, message } = readerErrorCopy(error);
+  const { title, message } = readerErrorCopy(error, book);
   stage.innerHTML = `
     <div class="empty-state empty-state--library reader-error">
       <div class="empty-icon">${icon("alert")}</div>
@@ -1540,7 +1544,7 @@ function renderDownloadOriginal(stage: HTMLElement, book: Book) {
   });
 }
 
-function readerErrorCopy(error: unknown): { title: string; message: string } {
+function readerErrorCopy(error: unknown, book: Book): { title: string; message: string } {
   if (error instanceof ApiError && error.status === 401) {
     return { title: "Session expired", message: "Close and reopen the Mini App from Telegram to refresh access." };
   }
@@ -1553,7 +1557,7 @@ function readerErrorCopy(error: unknown): { title: string; message: string } {
   if (error instanceof TypeError) {
     return { title: "Network problem", message: "Check your connection and try again." };
   }
-  if (activeBook?.format === "pdf") {
+  if (book.format === "pdf") {
     return { title: "Could not render this PDF", message: "Try again or return to your library." };
   }
   return { title: "Could not open document", message: readableError(error) };

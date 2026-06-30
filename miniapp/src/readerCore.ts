@@ -308,9 +308,12 @@ export async function openPdfReader(
 ): Promise<PdfReaderController> {
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+  const pageShell = document.createElement("div");
+  pageShell.className = "pdf-page-shell";
   const canvas = document.createElement("canvas");
   canvas.className = "pdf-canvas";
-  container.replaceChildren(canvas);
+  pageShell.append(canvas);
+  container.replaceChildren(pageShell);
   let pageNumber = parsePdfPage(restoreLocator, pdf.numPages);
   let requestedPage = pageNumber;
   let zoom = clamp(options.zoom ?? 1, PDF_MIN_ZOOM, PDF_MAX_ZOOM);
@@ -319,23 +322,33 @@ export async function openPdfReader(
   let completedRenderId = -1;
 
   const renderPageNow = async (page: number, renderId: number) => {
-    pageNumber = Math.min(Math.max(page, 1), pdf.numPages);
-    const pdfPage = await pdf.getPage(pageNumber);
+    const nextPageNumber = Math.min(Math.max(page, 1), pdf.numPages);
+    const pdfPage = await pdf.getPage(nextPageNumber);
     const baseViewport = pdfPage.getViewport({ scale: 1 });
     const fitWidthScale = (container.clientWidth || window.innerWidth) / baseViewport.width;
     const scale = fitWidthScale * zoom;
     const viewport = pdfPage.getViewport({ scale });
-    const context = canvas.getContext("2d")!;
     const dpr = clamp(window.devicePixelRatio || 1, 1, PDF_MAX_DPR);
     const cssWidth = Math.ceil(viewport.width);
     const cssHeight = Math.ceil(viewport.height);
-    canvas.width = Math.ceil(cssWidth * dpr);
-    canvas.height = Math.ceil(cssHeight * dpr);
-    canvas.style.width = `${cssWidth}px`;
-    canvas.style.height = `${cssHeight}px`;
+    const renderCanvas = document.createElement("canvas");
+    renderCanvas.width = Math.ceil(cssWidth * dpr);
+    renderCanvas.height = Math.ceil(cssHeight * dpr);
+    const context = renderCanvas.getContext("2d")!;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, cssWidth, cssHeight);
-    await pdfPage.render({ canvas, canvasContext: context, viewport }).promise;
+    await pdfPage.render({ canvas: renderCanvas, canvasContext: context, viewport }).promise;
+    if (renderId !== requestedRenderId) return;
+
+    pageNumber = nextPageNumber;
+    canvas.width = renderCanvas.width;
+    canvas.height = renderCanvas.height;
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+    const visibleContext = canvas.getContext("2d")!;
+    visibleContext.setTransform(1, 0, 0, 1, 0, 0);
+    visibleContext.clearRect(0, 0, canvas.width, canvas.height);
+    visibleContext.drawImage(renderCanvas, 0, 0);
     completedRenderId = renderId;
     onPosition({ locator: String(pageNumber), percent: (pageNumber / pdf.numPages) * 100 });
     onStatus?.(`${pageNumber} / ${pdf.numPages}`);

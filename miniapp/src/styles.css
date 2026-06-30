@@ -1599,10 +1599,19 @@ foliate-view {
   background: #fff;
 }
 
+.pdf-page-shell {
+  display: flex;
+  justify-content: center;
+  min-width: 100%;
+  width: max-content;
+  padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+}
+
 .pdf-canvas {
   display: block;
-  max-width: 100%;
-  margin: 0 auto max(20px, env(safe-area-inset-bottom, 0px));
+  flex: 0 0 auto;
+  max-width: none;
+  background: #fff;
 }
 
 .glow {
