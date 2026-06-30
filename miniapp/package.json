@@ -10,6 +10,9 @@
     "build": "tsc && vite build",
     "build:harness": "tsc && VERIFY_READER=1 vite build --outDir dist-harness",
     "build:harness:foliate-view": "tsc && VERIFY_FOLIATE_VIEW=1 vite build --outDir dist-foliate-view-harness",
+    "e2e:reader": "node scripts/run-reader-e2e.mjs",
+    "e2e:reader:mobile": "node scripts/run-reader-e2e.mjs --project=mobile",
+    "e2e:reader:screenshots": "node scripts/run-reader-e2e.mjs --screenshots",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
@@ -17,6 +20,7 @@
     "pdfjs-dist": "6.1.200"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "typescript": "^5.5.4",
     "vite": "8.1.0"
   }

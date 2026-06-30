@@ -68,6 +68,9 @@ type AppTheme = "day" | "night";
 type PendingAction = "folder" | "folderEdit" | "folderRemove" | "move" | "edit" | "remove" | "reorder" | "note" | null;
 type ToastKind = "info" | "success" | "error";
 
+const PDF_MIN_ZOOM = 0.75;
+const PDF_MAX_ZOOM = 3;
+
 class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -114,9 +117,6 @@ let toastTimer = 0;
 let pendingAction: PendingAction = null;
 let positionSaveErrorShown = false;
 let coverObjectUrls: string[] = [];
-
-const PDF_MIN_ZOOM = 0.75;
-const PDF_MAX_ZOOM = 3;
 
 function init() {
   tg?.ready?.();

@@ -15,8 +15,16 @@ dev/*.sqlite3
 dev/file_cache/
 dev/private_reader_fixtures/*
 !dev/private_reader_fixtures/README.md
+dev/reader_fixtures/private/*
+!dev/reader_fixtures/private/README.md
+dev/reader_e2e.sqlite3
+dev/reader_e2e_file_cache/
+dev/reader_e2e_env.json
 miniapp/node_modules/
 miniapp/dist/
 miniapp/dist-harness/
+miniapp/playwright-report/
+miniapp/test-results/
+tests/screenshots/artifacts/
 htmlcov/
 .coverage
