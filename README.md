@@ -30,8 +30,30 @@ renders deterministic fallback covers with title initials, title, author, and a
 format badge so the library still looks intentional.
 
 Cover images are served only through `GET /api/books/{book_id}/cover`, with the
-same Telegram initData ownership checks as book files. Broken or missing cover
-URLs fall back in the Mini App instead of showing a broken image.
+same Telegram initData ownership checks as book files. The Mini App must not use
+`<img src="/api/books/.../cover">` directly because an image tag cannot attach
+`X-Telegram-Init-Data`. Covers are loaded with authenticated `fetch`, converted
+to a temporary object URL, and then displayed. Broken, missing, or unauthorized
+cover responses fall back in the Mini App instead of showing a broken image.
+
+Older books that were uploaded before cover extraction may need a safe backfill
+or a re-upload. The backfill script never deletes user files and skips `too_large`
+records by default:
+
+```bash
+DATABASE_URL=... .venv/bin/python scripts/backfill_covers.py --dry-run --limit 50
+DATABASE_URL=... .venv/bin/python scripts/backfill_covers.py --limit 50
+```
+
+If the original <=20 MB file is not already in `FILE_CACHE_DIR`, add
+`--download` explicitly so the script fetches it from Telegram:
+
+```bash
+DATABASE_URL=... .venv/bin/python scripts/backfill_covers.py --download --limit 25
+```
+
+On the 10 GB VDS, run a disk report before large backfills, keep
+`COVER_CACHE_MAX_BYTES` at 32-64 MB, and prefer small `--limit` batches.
 
 ## Structure
 

@@ -122,12 +122,15 @@ let toastKind: ToastKind = "info";
 let toastTimer = 0;
 let pendingAction: PendingAction = null;
 let positionSaveErrorShown = false;
-let coverObjectUrls: string[] = [];
+const coverObjectUrlCache = new Map<string, string>();
+const coverCacheKeyByBookId = new Map<number, string>();
+const pendingCoverFetches = new Map<string, Promise<string | null>>();
 
 function init() {
   tg?.ready?.();
   tg?.expand?.();
   document.body.classList.add("dark");
+  window.addEventListener("pagehide", revokeAllCoverObjectUrls);
   applyAppTheme();
   void loadHome();
 }
@@ -559,7 +562,6 @@ function currentBookScopePayload(): { inbox?: boolean; folder_id?: number } {
 }
 
 function render() {
-  revokeCoverObjectUrls();
   if (view === "reader" && activeBook) {
     renderReader(activeBook);
     return;
@@ -580,6 +582,8 @@ function render() {
   bindBookButtons();
   bindLibraryControls();
   bindSheetControls();
+  bindCoverImages();
+  pruneCoverObjectUrls();
 }
 
 function renderTopbar(title: string): string {
@@ -852,12 +856,13 @@ function renderBookRow(book: Book, index: number): string {
 }
 
 function renderCover(book: Book, className: string, withProgress = false): string {
+  const coverKey = book.cover_ref ? `${book.id}:${book.cover_ref}` : "";
   const image = book.cover_url
-    ? `<img class="cover-image" data-cover-url="${escapeHtml(book.cover_url)}" alt="" loading="lazy" decoding="async" hidden />`
+    ? `<img class="cover-image" data-cover-book-id="${book.id}" data-cover-ref="${escapeHtml(book.cover_ref ?? "")}" data-cover-key="${escapeHtml(coverKey)}" data-cover-url="${escapeHtml(book.cover_url)}" alt="" loading="lazy" decoding="async" hidden />`
     : "";
   const hasImage = Boolean(book.cover_url);
   return `
-    <span class="book-cover ${className} tone-${book.id % 5} ${hasImage ? "cover-loading" : "cover-fallback-active"}" data-cover-shell>
+    <span class="book-cover ${className} tone-${book.id % 5} ${hasImage ? "cover-loading" : "cover-fallback-active"}" data-cover-shell data-cover-book-id="${book.id}">
       ${image}
       <span class="cover-stripes"></span>
       <span class="cover-spine"></span>
@@ -1318,18 +1323,6 @@ function bindShellControls() {
 }
 
 function bindBookButtons() {
-  document.querySelectorAll<HTMLImageElement>(".cover-image").forEach((image) => {
-    image.addEventListener(
-      "error",
-      () => {
-        image.classList.add("cover-image-broken");
-        image.closest("[data-cover-shell]")?.classList.add("cover-fallback-active");
-        image.closest("[data-cover-shell]")?.classList.remove("cover-loading");
-      },
-      { once: true },
-    );
-  });
-  void loadCoverImages();
   document.querySelectorAll<HTMLElement>("[data-open]").forEach((button) => {
     button.addEventListener("click", () => openBookById(Number(button.dataset.open), button.textContent ?? ""));
   });
@@ -1387,37 +1380,118 @@ function bindBookButtons() {
   });
 }
 
+function bindCoverImages(): void {
+  document.querySelectorAll<HTMLImageElement>(".cover-image").forEach((image) => {
+    image.addEventListener("error", () => activateCoverFallback(image), { once: true });
+  });
+  void loadCoverImages();
+}
+
 async function loadCoverImages(): Promise<void> {
   const images = Array.from(document.querySelectorAll<HTMLImageElement>(".cover-image[data-cover-url]"));
   await Promise.all(
     images.map(async (image) => {
       const path = image.dataset.coverUrl;
-      if (!path) return;
-      const shell = image.closest("[data-cover-shell]");
+      const bookId = Number(image.dataset.coverBookId);
+      const coverRef = image.dataset.coverRef;
+      const coverKey = image.dataset.coverKey;
+      if (!path || !bookId || !coverRef || !coverKey) {
+        activateCoverFallback(image);
+        return;
+      }
       try {
-        const response = await fetch(apiUrl(path), { headers: headers() });
-        if (!response.ok) throw new Error(`Cover request failed with HTTP ${response.status}`);
-        const blob = await response.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        coverObjectUrls.push(objectUrl);
-        image.src = objectUrl;
+        const cachedUrl = coverObjectUrlCache.get(coverKey) ?? (await fetchCoverObjectUrl(path, bookId, coverKey));
+        if (!cachedUrl) {
+          activateCoverFallback(image);
+          return;
+        }
+        if (!document.body.contains(image) || image.dataset.coverKey !== coverKey) return;
+        const shell = image.closest("[data-cover-shell]");
+        image.src = cachedUrl;
         image.hidden = false;
         await image.decode().catch(() => undefined);
         image.classList.remove("cover-image-broken");
         shell?.classList.remove("cover-loading", "cover-fallback-active");
       } catch {
-        image.classList.add("cover-image-broken");
-        image.hidden = true;
-        shell?.classList.add("cover-fallback-active");
-        shell?.classList.remove("cover-loading");
+        activateCoverFallback(image);
       }
     }),
   );
 }
 
-function revokeCoverObjectUrls(): void {
-  coverObjectUrls.forEach((url) => URL.revokeObjectURL(url));
-  coverObjectUrls = [];
+async function fetchCoverObjectUrl(path: string, bookId: number, coverKey: string): Promise<string | null> {
+  const pending = pendingCoverFetches.get(coverKey);
+  if (pending) return pending;
+  const request = (async () => {
+    const response = await fetch(apiUrl(path), { headers: headers() });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`Cover request failed with HTTP ${response.status}`);
+    const blob = await response.blob();
+    if (!blob.type.toLowerCase().startsWith("image/")) return null;
+    const objectUrl = URL.createObjectURL(blob);
+    storeCoverObjectUrl(bookId, coverKey, objectUrl);
+    return objectUrl;
+  })().finally(() => {
+    pendingCoverFetches.delete(coverKey);
+  });
+  pendingCoverFetches.set(coverKey, request);
+  return request;
+}
+
+function storeCoverObjectUrl(bookId: number, coverKey: string, objectUrl: string): void {
+  const previousKey = coverCacheKeyByBookId.get(bookId);
+  if (previousKey && previousKey !== coverKey) {
+    const previousUrl = coverObjectUrlCache.get(previousKey);
+    if (previousUrl) URL.revokeObjectURL(previousUrl);
+    coverObjectUrlCache.delete(previousKey);
+  }
+  coverCacheKeyByBookId.set(bookId, coverKey);
+  coverObjectUrlCache.set(coverKey, objectUrl);
+}
+
+function activateCoverFallback(image: HTMLImageElement): void {
+  image.classList.add("cover-image-broken");
+  image.hidden = true;
+  image.removeAttribute("src");
+  const shell = image.closest("[data-cover-shell]");
+  shell?.classList.add("cover-fallback-active");
+  shell?.classList.remove("cover-loading");
+}
+
+function pruneCoverObjectUrls(): void {
+  const knownBookIds = new Set<number>();
+  const collect = (book: Book | null | undefined) => {
+    if (book) knownBookIds.add(book.id);
+  };
+  allBooksState.forEach(collect);
+  booksState.forEach(collect);
+  homeState?.recent.forEach(collect);
+  collect(homeState?.continue_book);
+  collect(activeBook);
+  if (activeSheet && "book" in activeSheet) collect(activeSheet.book);
+
+  coverCacheKeyByBookId.forEach((coverKey, bookId) => {
+    if (knownBookIds.has(bookId)) return;
+    const objectUrl = coverObjectUrlCache.get(coverKey);
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    coverObjectUrlCache.delete(coverKey);
+    coverCacheKeyByBookId.delete(bookId);
+  });
+}
+
+function revokeCoverObjectUrlForBook(bookId: number): void {
+  const coverKey = coverCacheKeyByBookId.get(bookId);
+  if (!coverKey) return;
+  const objectUrl = coverObjectUrlCache.get(coverKey);
+  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  coverObjectUrlCache.delete(coverKey);
+  coverCacheKeyByBookId.delete(bookId);
+}
+
+function revokeAllCoverObjectUrls(): void {
+  coverObjectUrlCache.forEach((url) => URL.revokeObjectURL(url));
+  coverObjectUrlCache.clear();
+  coverCacheKeyByBookId.clear();
 }
 
 function bindLibraryControls() {
@@ -1732,6 +1806,7 @@ function closeSheet() {
   activeSheet = null;
   if (view === "reader") {
     document.querySelector(".sheet-layer")?.remove();
+    pruneCoverObjectUrls();
     return;
   }
   render();
@@ -1743,6 +1818,8 @@ function updateActiveSheet() {
     if (activeSheet) {
       appEl.insertAdjacentHTML("beforeend", renderActiveSheet());
       bindSheetControls();
+      bindCoverImages();
+      pruneCoverObjectUrls();
     }
     return;
   }
@@ -1768,6 +1845,7 @@ function findFolder(folderId: number): Folder | null {
 }
 
 function removeBookFromState(bookId: number) {
+  revokeCoverObjectUrlForBook(bookId);
   allBooksState = allBooksState.filter((book) => book.id !== bookId);
   booksState = filterBooks(allBooksState);
   if (homeState) {

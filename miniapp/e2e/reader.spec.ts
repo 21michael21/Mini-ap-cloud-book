@@ -348,10 +348,20 @@ test.describe("reader e2e", () => {
   });
 
   test("library covers load real images and polished fallbacks", async ({ page }, testInfo) => {
+    const coverAuthHeaders: string[] = [];
+    await page.route("**/api/books/*/cover", async (route) => {
+      if (route.request().method() === "GET") {
+        coverAuthHeaders.push(route.request().headers()["x-telegram-init-data"] ?? "");
+      }
+      await route.continue();
+    });
     await openLibrary(page);
     const realCoverRow = page.locator(".book-row", { hasText: books.simple }).first();
     await expect(realCoverRow).toBeVisible();
     await expectLoadedCover(realCoverRow);
+    expect(coverAuthHeaders.length).toBeGreaterThan(0);
+    expect(coverAuthHeaders.every(Boolean)).toBeTruthy();
+    await expect(page.locator('img.cover-image[src*="/api/books/"]')).toHaveCount(0);
     await maybeScreenshot(page, testInfo, "library-with-real-cover");
 
     await page.locator("#searchInput").fill("Reader E2E Long TXT");
@@ -364,6 +374,7 @@ test.describe("reader e2e", () => {
     await expect(pdfRow).toBeVisible();
     await expectFallbackCover(pdfRow);
     await maybeScreenshot(page, testInfo, "library-with-fallback-covers");
+    await page.unroute("**/api/books/*/cover");
   });
 
   test("broken cover URL gracefully falls back", async ({ page }) => {
@@ -637,7 +648,9 @@ async function openBookActionsWithoutSearch(page: Page, title: string): Promise<
 async function expectLoadedCover(scope: ReturnType<Page["locator"]>): Promise<void> {
   const cover = scope.locator(".book-cover").first();
   await expect(cover).toBeVisible();
-  await expect(cover.locator(".cover-image:not(.cover-image-broken)")).toBeVisible();
+  const image = cover.locator(".cover-image:not(.cover-image-broken)").first();
+  await expect(image).toBeVisible();
+  await expect(image).toHaveAttribute("src", /^blob:/);
   await expect(cover).not.toHaveClass(/cover-fallback-active/);
 }
 

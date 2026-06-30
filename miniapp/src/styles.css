@@ -354,10 +354,11 @@ input:focus-visible {
   display: block;
   flex-shrink: 0;
   overflow: hidden;
-  border: 1px solid #313a55;
+  border: 1px solid rgba(255, 214, 170, 0.2);
   background:
-    radial-gradient(circle at 70% 18%, rgba(255, 255, 255, 0.18), transparent 24%),
-    linear-gradient(145deg, #33406b, #1b2236 58%, #101522);
+    radial-gradient(circle at 72% 16%, rgba(255, 217, 166, 0.18), transparent 24%),
+    radial-gradient(circle at 20% 78%, rgba(139, 155, 255, 0.14), transparent 32%),
+    linear-gradient(145deg, #5a3b50, #2b2230 58%, #11141c);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
@@ -387,30 +388,34 @@ input:focus-visible {
 
 .tone-1 {
   background:
-    radial-gradient(circle at 70% 18%, rgba(255, 255, 255, 0.15), transparent 24%),
-    linear-gradient(145deg, #3a2e52, #241d33 58%, #15111f);
-  border-color: #342a47;
+    radial-gradient(circle at 70% 18%, rgba(255, 226, 184, 0.16), transparent 24%),
+    radial-gradient(circle at 18% 80%, rgba(176, 105, 84, 0.2), transparent 32%),
+    linear-gradient(145deg, #60414d, #2d202c 58%, #15121b);
+  border-color: rgba(255, 200, 162, 0.18);
 }
 
 .tone-2 {
   background:
-    radial-gradient(circle at 70% 18%, rgba(255, 255, 255, 0.14), transparent 24%),
-    linear-gradient(145deg, #23394a, #16222e 58%, #0e151d);
-  border-color: #2a3a47;
+    radial-gradient(circle at 70% 18%, rgba(255, 236, 195, 0.14), transparent 24%),
+    radial-gradient(circle at 16% 74%, rgba(119, 164, 148, 0.22), transparent 30%),
+    linear-gradient(145deg, #32515a, #1d2b31 58%, #10171c);
+  border-color: rgba(173, 219, 196, 0.18);
 }
 
 .tone-3 {
   background:
-    radial-gradient(circle at 70% 18%, rgba(255, 255, 255, 0.14), transparent 24%),
-    linear-gradient(145deg, #2e3a2c, #1c261b 58%, #11180f);
-  border-color: #313f2e;
+    radial-gradient(circle at 72% 16%, rgba(255, 231, 173, 0.14), transparent 25%),
+    radial-gradient(circle at 18% 82%, rgba(158, 136, 79, 0.24), transparent 32%),
+    linear-gradient(145deg, #4a5034, #252a1e 58%, #11150f);
+  border-color: rgba(226, 203, 135, 0.18);
 }
 
 .tone-4 {
   background:
-    radial-gradient(circle at 70% 18%, rgba(255, 255, 255, 0.14), transparent 24%),
-    linear-gradient(145deg, #4a3a23, #2e2416 58%, #18120b);
-  border-color: #473721;
+    radial-gradient(circle at 72% 16%, rgba(255, 226, 181, 0.15), transparent 25%),
+    radial-gradient(circle at 18% 80%, rgba(196, 118, 86, 0.21), transparent 30%),
+    linear-gradient(145deg, #654833, #322518 58%, #18120c);
+  border-color: rgba(237, 179, 119, 0.18);
 }
 
 .cover-stripes {
@@ -2126,18 +2131,19 @@ foliate-view {
 
 .reader-settings-sheet .sort-button.active {
   border-color: var(--accent);
-  background: var(--accent);
-  color: #111520;
+  background: #27305f;
+  color: #f7f8ff;
 }
 
 body.reader-light .reader-settings-sheet .sort-button.active {
+  background: #4e35a0;
   color: #ffffff;
 }
 
 body.reader-sepia .reader-settings-sheet .sort-button.active {
-  border-color: #f1be79;
-  background: #f1be79;
-  color: #120c06;
+  border-color: #d6a15f;
+  background: #3f2d1e;
+  color: #f7e8cf;
 }
 
 .reader-settings-sheet .secondary,

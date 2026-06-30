@@ -203,6 +203,14 @@ def test_cover_endpoint_is_ownership_checked(client: TestClient) -> None:
     assert stranger.status_code == 404
 
 
+def test_cover_endpoint_requires_auth(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+
+    response = client.get(f"/api/books/{ids['book_a']}/cover")
+
+    assert response.status_code == 401
+
+
 def test_missing_cover_returns_404(client: TestClient) -> None:
     ids = seed_owner_data(client)
 
