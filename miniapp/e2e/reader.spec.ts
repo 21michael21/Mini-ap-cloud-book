@@ -197,38 +197,61 @@ test.describe("reader e2e", () => {
 
   test("PDF opens high-DPI, zooms, navigates, and restores page", async ({ page }, testInfo) => {
     await resetBookPosition("small.pdf", "1", 0);
+    await page.addInitScript(() => window.localStorage.setItem("telegram-library-pdf-zoom", "1"));
     await openBook(page, books.pdf);
     const canvas = page.locator(".pdf-canvas");
     await expect(canvas).toBeVisible();
     await expect(page.locator("#readerBottomLabel")).toContainText(/1 \/ 2/);
     await expect(canvas).toPassCanvasDprCheck();
-    await maybeScreenshot(page, testInfo, isReaderUiV2 ? "reader-v2-pdf" : "pdf-fit-width");
+    await expectPdfFitWidth(page);
+    await expect.poll(() => canvasNonBlankScore(page)).toBeGreaterThan(20);
+    await maybeScreenshot(page, testInfo, "pdf-fit-width");
+    if (isReaderUiV2) await maybeScreenshot(page, testInfo, "reader-v2-pdf");
 
     const widthBefore = await canvasCssWidth(page);
-    if (isReaderUiV2) {
-      await page.locator("#readerSettingsButton").click();
-      await expect(page.locator("#readerZoomIn")).toBeVisible();
-      await expect(page.locator("#readerFitWidth")).toBeVisible();
-      await page.locator("#readerZoomIn").click();
-      await closeSheet(page);
-      await expect(page.locator("#readerBottomLabel")).toContainText(/Page 1 \/ 2 · \d+%/);
-    } else {
-      await expect(page.locator("#readerPdfZoomIn")).toBeVisible();
-      await page.locator("#readerPdfZoomIn").click();
-    }
+    await openPdfSettings(page);
+    await expect(page.locator("#readerZoomIn")).toBeVisible();
+    await expect(page.locator("#readerFitWidth")).toBeVisible();
+    await page.locator("#readerZoomIn").click();
+    await closeSheet(page);
+    await expect(page.locator("#readerBottomLabel")).toContainText(/1 \/ 2/);
     await expect.poll(() => canvasCssWidth(page)).toBeGreaterThan(widthBefore);
     await maybeScreenshot(page, testInfo, "pdf-zoomed");
+
+    await openPdfSettings(page);
+    await page.locator("#readerFitWidth").click();
+    await closeSheet(page);
+    await expect.poll(() => canvasCssWidth(page)).toBeLessThan(widthBefore + 3);
+    await expectPdfFitWidth(page);
+
     await page.locator("#readerNext").click();
     await expect(page.locator("#readerBottomLabel")).toContainText(/2 \/ 2/);
     await page.locator("#readerPrev").click();
     await expect(page.locator("#readerBottomLabel")).toContainText(/1 \/ 2/);
-    await page.locator("#readerNext").click();
+    await page.locator("#readerNext").evaluate((button: HTMLButtonElement) => {
+      button.click();
+      button.click();
+      button.click();
+    });
     await expect(page.locator("#readerBottomLabel")).toContainText(/2 \/ 2/);
     await maybeScreenshot(page, testInfo, "pdf-reader");
 
     await leaveReader(page);
     await openBook(page, books.pdf);
     await expect(page.locator("#readerBottomLabel")).toContainText(/2 \/ 2/);
+  });
+
+  test("scanned-like PDF renders nonblank at fit width", async ({ page }, testInfo) => {
+    await resetBookPosition("scanned_like.pdf", "1", 0);
+    await page.addInitScript(() => window.localStorage.setItem("telegram-library-pdf-zoom", "1"));
+    await openBook(page, books.scannedPdf);
+    const canvas = page.locator(".pdf-canvas");
+    await expect(canvas).toBeVisible();
+    await expect(canvas).toPassCanvasDprCheck();
+    await expectPdfFitWidth(page);
+    await expect(page.locator("#readerBottomLabel")).toContainText(/1 \/ 2/);
+    await expect.poll(() => canvasNonBlankScore(page)).toBeGreaterThan(20);
+    await maybeScreenshot(page, testInfo, "pdf-scanned-like");
   });
 
   test("library management actions are visible and work", async ({ page }, testInfo) => {
@@ -528,6 +551,47 @@ async function expectReadableButton(locator: ReturnType<Page["locator"]>): Promi
 
 async function canvasCssWidth(page: Page): Promise<number> {
   return page.locator(".pdf-canvas").evaluate((canvas) => Number.parseFloat((canvas as HTMLCanvasElement).style.width));
+}
+
+async function openPdfSettings(page: Page): Promise<void> {
+  const settings = page.locator("#readerSettingsButton");
+  if (!(await settings.isVisible().catch(() => false))) {
+    await page.locator("#readerStage").click({ position: { x: 180, y: 260 }, timeout: 500 }).catch(() => undefined);
+  }
+  await settings.click();
+  await expect(page.locator(".reader-settings-sheet")).toBeVisible();
+}
+
+async function expectPdfFitWidth(page: Page): Promise<void> {
+  const fits = await page.locator(".pdf-canvas").evaluate((canvasElement: HTMLCanvasElement) => {
+    const stage = document.querySelector<HTMLElement>("#readerStage");
+    if (!stage) return false;
+    const cssWidth = Number.parseFloat(canvasElement.style.width);
+    return Number.isFinite(cssWidth) && cssWidth <= stage.clientWidth + 3 && stage.scrollWidth <= stage.clientWidth + 3;
+  });
+  expect(fits).toBe(true);
+}
+
+async function canvasNonBlankScore(page: Page): Promise<number> {
+  return page.locator(".pdf-canvas").evaluate((canvasElement: HTMLCanvasElement) => {
+    if (canvasElement.width <= 0 || canvasElement.height <= 0) return 0;
+    const sample = document.createElement("canvas");
+    sample.width = 96;
+    sample.height = 128;
+    const context = sample.getContext("2d");
+    if (!context) return 0;
+    context.drawImage(canvasElement, 0, 0, sample.width, sample.height);
+    const image = context.getImageData(0, 0, sample.width, sample.height).data;
+    let nonWhite = 0;
+    for (let index = 0; index < image.length; index += 16) {
+      const red = image[index] ?? 255;
+      const green = image[index + 1] ?? 255;
+      const blue = image[index + 2] ?? 255;
+      const alpha = image[index + 3] ?? 0;
+      if (alpha > 0 && (red < 245 || green < 245 || blue < 245)) nonWhite += 1;
+    }
+    return nonWhite;
+  });
 }
 
 async function maybeScreenshot(page: Page, testInfo: { project: { name: string } }, name: string): Promise<void> {
