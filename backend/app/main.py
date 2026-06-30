@@ -282,6 +282,12 @@ def delete_book(
     book = owned_book_or_404(db, user, book_id)
     cached_path = cache_path(settings, book)
     cover_path = cover_cache_path(settings, book.cover_ref) if book.cover_ref else None
+    cover_is_shared = False
+    if book.cover_ref:
+        cover_is_shared = (
+            db.scalar(select(Book.id).where(Book.id != book.id, Book.cover_ref == book.cover_ref).limit(1))
+            is not None
+        )
     log_event(db, user.id, "book_removed", book.id, {"title": book.title})
     db.flush()
     db.delete(book)
@@ -290,7 +296,7 @@ def delete_book(
         cached_path.unlink(missing_ok=True)
     except OSError:
         logger.exception("Could not delete cached file for removed book_id=%s", book_id)
-    if cover_path is not None:
+    if cover_path is not None and not cover_is_shared:
         try:
             cover_path.unlink(missing_ok=True)
         except OSError:

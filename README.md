@@ -21,6 +21,18 @@ Books can be renamed, assigned an author, moved to folders, removed from the loc
 
 Manual book order is intentionally simple for the MVP: `books.sort_order` is global per user and then applied inside All, Inbox, and folder views. This means a manual move in a folder can affect the relative order seen in All, but it avoids a separate per-folder ordering table while alpha testing the workflow.
 
+## Covers
+
+Cover extraction is best effort. EPUB and FB2 uploads try to extract an embedded
+cover image during the normal metadata pass; failures never block saving the
+book. PDF and TXT do not require server-side image generation yet: the Mini App
+renders deterministic fallback covers with title initials, title, author, and a
+format badge so the library still looks intentional.
+
+Cover images are served only through `GET /api/books/{book_id}/cover`, with the
+same Telegram initData ownership checks as book files. Broken or missing cover
+URLs fall back in the Mini App instead of showing a broken image.
+
 ## Structure
 
 ```text

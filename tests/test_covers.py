@@ -5,7 +5,7 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from backend.app.config import Settings
-from backend.app.covers import extract_and_store_cover
+from backend.app.covers import cleanup_cover_cache, extract_and_store_cover, store_cover_bytes
 
 
 PNG_1X1 = base64.b64decode(
@@ -47,6 +47,18 @@ def test_epub_cover_rejects_path_traversal(tmp_path: Path) -> None:
     assert not any(settings.cover_cache_dir.glob("*"))
 
 
+def test_epub_cover_rejects_oversized_embedded_image(tmp_path: Path) -> None:
+    epub = tmp_path / "huge-cover.epub"
+    make_epub(epub, cover_href="images/cover.png", cover_properties="cover-image")
+    settings = cover_settings(tmp_path)
+    settings.cover_image_max_bytes = 8
+
+    cover_ref = extract_and_store_cover(settings, epub, "huge-cover.epub", "epub", title="Huge")
+
+    assert cover_ref is None
+    assert not any(settings.cover_cache_dir.glob("*"))
+
+
 def test_extracts_fb2_coverpage_binary(tmp_path: Path) -> None:
     fb2 = tmp_path / "sample.fb2"
     fb2.write_text(
@@ -76,6 +88,21 @@ def test_txt_uses_frontend_placeholder_without_backend_cover(tmp_path: Path) -> 
 
     assert cover_ref is None
     assert not any(settings.cover_cache_dir.glob("*"))
+
+
+def test_cover_cache_cleanup_respects_size_cap(tmp_path: Path) -> None:
+    settings = cover_settings(tmp_path)
+    settings.cover_cache_max_bytes = 220
+    first = store_cover_bytes(settings, PNG_1X1 + b"a" * 120, "image/png")
+    assert first is not None
+    second = store_cover_bytes(settings, PNG_1X1 + b"b" * 120, "image/png")
+    assert second is not None
+
+    cleanup_cover_cache(settings)
+
+    files = list(settings.cover_cache_dir.glob("*.png"))
+    assert len(files) == 1
+    assert sum(path.stat().st_size for path in files) <= settings.cover_cache_max_bytes
 
 
 def make_epub(

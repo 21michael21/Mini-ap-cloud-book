@@ -211,6 +211,23 @@ def test_missing_cover_returns_404(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_cover_ref_path_traversal_returns_404(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+    SessionLocal = client.app.state.testing_session_local
+    settings = client.app.dependency_overrides[get_settings]()
+    settings.file_cache_dir.mkdir(parents=True, exist_ok=True)
+    (settings.file_cache_dir / "secret.png").write_bytes(PNG_1X1)
+    with SessionLocal() as db:
+        book = db.get(Book, ids["book_a"])
+        assert book is not None
+        book.cover_ref = "../secret.png"
+        db.commit()
+
+    response = client.get(f"/api/books/{ids['book_a']}/cover", headers=auth_headers(1001))
+
+    assert response.status_code == 404
+
+
 def test_user_can_reorder_own_books_up_and_down(client: TestClient) -> None:
     ids = seed_owner_data(client)
     headers = auth_headers(1001)
@@ -308,6 +325,42 @@ def test_delete_book_removes_reading_position(client: TestClient) -> None:
     with SessionLocal() as db:
         assert db.get(Book, ids["book_a"]) is None
         assert db.scalar(select(ReadingPosition).where(ReadingPosition.book_id == ids["book_a"])) is None
+
+
+def test_delete_book_keeps_shared_cover_file(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+    SessionLocal = client.app.state.testing_session_local
+    settings = client.app.dependency_overrides[get_settings]()
+    assert settings.cover_cache_dir is not None
+    settings.cover_cache_dir.mkdir(parents=True, exist_ok=True)
+    cover_path = settings.cover_cache_dir / "book-a.png"
+    cover_path.write_bytes(PNG_1X1)
+    with SessionLocal() as db:
+        owner = db.scalar(select(User).where(User.tg_user_id == 1001))
+        assert owner is not None
+        db.add(
+            Book(
+                user_id=owner.id,
+                tg_file_id="shared-cover-file",
+                tg_file_unique_id="shared-cover-unique",
+                file_name="shared.epub",
+                mime_type="application/epub+zip",
+                title="Shared cover",
+                author=None,
+                format="epub",
+                cover_ref="book-a.png",
+                size_bytes=1024,
+                too_large=False,
+                sort_order=30,
+                folder_id=None,
+            )
+        )
+        db.commit()
+
+    response = client.delete(f"/api/books/{ids['book_a']}", headers=auth_headers(1001))
+
+    assert response.status_code == 204
+    assert cover_path.exists()
 
 
 def test_user_can_crud_own_notes(client: TestClient) -> None:

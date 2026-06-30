@@ -254,6 +254,43 @@ test.describe("reader e2e", () => {
     await maybeScreenshot(page, testInfo, "pdf-scanned-like");
   });
 
+  test("library covers load real images and polished fallbacks", async ({ page }, testInfo) => {
+    await openLibrary(page);
+    const realCoverRow = page.locator(".book-row", { hasText: books.simple }).first();
+    await expect(realCoverRow).toBeVisible();
+    await expectLoadedCover(realCoverRow);
+    await maybeScreenshot(page, testInfo, "library-with-real-cover");
+
+    await page.locator("#searchInput").fill("Reader E2E Long TXT");
+    const txtRow = page.locator(".book-row", { hasText: books.txt }).first();
+    await expect(txtRow).toBeVisible();
+    await expectFallbackCover(txtRow);
+
+    await page.locator("#searchInput").fill("Reader E2E Small PDF");
+    const pdfRow = page.locator(".book-row", { hasText: books.pdf }).first();
+    await expect(pdfRow).toBeVisible();
+    await expectFallbackCover(pdfRow);
+    await maybeScreenshot(page, testInfo, "library-with-fallback-covers");
+  });
+
+  test("broken cover URL gracefully falls back", async ({ page }) => {
+    await page.route("**/api/books/*/cover", (route) => route.fulfill({ status: 404, body: "missing" }));
+    await openLibrary(page);
+    const row = page.locator(".book-row", { hasText: books.simple }).first();
+    await expect(row).toBeVisible();
+    await expectFallbackCover(row);
+    await page.unroute("**/api/books/*/cover");
+  });
+
+  test("home continue card shows cover", async ({ page }, testInfo) => {
+    await resetBookPosition("simple.epub", JSON.stringify({ type: "text", sectionIndex: 0, scrollRatio: 0.33 }), 33);
+    await page.goto("/");
+    const hero = page.locator(".continue-hero", { hasText: books.simple }).first();
+    await expect(hero).toBeVisible();
+    await expectLoadedCover(hero);
+    await maybeScreenshot(page, testInfo, "home-continue-card-with-cover");
+  });
+
   test("library management actions are visible and work", async ({ page }, testInfo) => {
     await openLibrary(page);
     const cover = page.locator(".book-row", { hasText: books.rename }).locator(".book-cover").first();
@@ -261,18 +298,23 @@ test.describe("reader e2e", () => {
     await maybeScreenshot(page, testInfo, "library-card-cover-fallback");
 
     await openBookActions(page, books.rename);
+    await expectLoadedCover(page.locator(".bottom-sheet"));
     await maybeScreenshot(page, testInfo, "book-actions-sheet");
     await page.locator("#sheetEdit").click();
     await page.locator("#bookTitleInput").fill("Reader E2E Renamed EPUB");
     await page.locator("#confirmBookEdit").click();
     await page.locator("#searchInput").fill("Reader E2E Renamed EPUB");
-    await expect(page.locator(".book-row", { hasText: "Reader E2E Renamed EPUB" })).toBeVisible();
+    const renamedRow = page.locator(".book-row", { hasText: "Reader E2E Renamed EPUB" }).first();
+    await expect(renamedRow).toBeVisible();
+    await expectLoadedCover(renamedRow);
 
     await openBookActions(page, books.move);
     await page.locator("#sheetMove").click();
     await page.locator("[data-sheet-folder]").filter({ hasText: "E2E Folder" }).click();
     await page.locator("#confirmMove").click();
     await expect(page.locator(".toast")).toContainText(/Moved|Saved|Updated/i);
+    await page.locator("#searchInput").fill(books.move);
+    await expectFallbackCover(page.locator(".book-row", { hasText: books.move }).first());
 
     await openBookActions(page, books.delete);
     await page.locator("#sheetRemove").click();
@@ -425,6 +467,21 @@ async function openBookActions(page: Page, title: string): Promise<void> {
   await expect(row).toBeVisible();
   await row.locator("[data-row-menu]").click();
   await expect(page.locator(".bottom-sheet")).toBeVisible();
+}
+
+async function expectLoadedCover(scope: ReturnType<Page["locator"]>): Promise<void> {
+  const cover = scope.locator(".book-cover").first();
+  await expect(cover).toBeVisible();
+  await expect(cover.locator(".cover-image:not(.cover-image-broken)")).toBeVisible();
+  await expect(cover).not.toHaveClass(/cover-fallback-active/);
+}
+
+async function expectFallbackCover(scope: ReturnType<Page["locator"]>): Promise<void> {
+  const cover = scope.locator(".book-cover").first();
+  await expect(cover).toBeVisible();
+  await expect(cover).toHaveClass(/cover-fallback-active/);
+  await expect(cover.locator(".cover-initials")).toBeVisible();
+  await expect(cover.locator(".cover-title")).toBeVisible();
 }
 
 async function waitForBookFrame(page: Page): Promise<FrameLocator> {

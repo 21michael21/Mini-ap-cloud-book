@@ -857,12 +857,16 @@ function renderCover(book: Book, className: string, withProgress = false): strin
   const image = book.cover_url
     ? `<img class="cover-image" data-cover-url="${escapeHtml(book.cover_url)}" alt="" loading="lazy" decoding="async" hidden />`
     : "";
+  const hasImage = Boolean(book.cover_url);
   return `
-    <span class="book-cover ${className} tone-${book.id % 5}">
+    <span class="book-cover ${className} tone-${book.id % 5} ${hasImage ? "cover-loading" : "cover-fallback-active"}" data-cover-shell>
       ${image}
       <span class="cover-stripes"></span>
       <span class="cover-spine"></span>
+      <span class="cover-format">${escapeHtml(book.format.toUpperCase())}</span>
+      <span class="cover-initials">${escapeHtml(coverInitials(book.title))}</span>
       <span class="cover-title">${escapeHtml(book.title)}</span>
+      <span class="cover-author">${escapeHtml(book.author ?? "Unknown author")}</span>
       ${withProgress ? renderCoverProgress(book) : ""}
     </span>
   `;
@@ -885,6 +889,19 @@ function renderCoverProgress(book: Book): string {
   const percent = clamp(Math.round(book.progress_percent), 0, 100);
   if (percent <= 0) return "";
   return `<span class="cover-progress"><span class="progress-meter ${progressClass(percent)}"></span></span>`;
+}
+
+function coverInitials(title: string): string {
+  const words = title
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const initials = words
+    .slice(0, 2)
+    .map((word) => Array.from(word).find((char) => char.toLowerCase() !== char.toUpperCase() || /\d/.test(char)) ?? "")
+    .map((char) => char.toUpperCase())
+    .join("");
+  return initials || "TL";
 }
 
 function renderNav(): string {
@@ -1287,6 +1304,8 @@ function bindBookButtons() {
       "error",
       () => {
         image.classList.add("cover-image-broken");
+        image.closest("[data-cover-shell]")?.classList.add("cover-fallback-active");
+        image.closest("[data-cover-shell]")?.classList.remove("cover-loading");
       },
       { once: true },
     );
@@ -1355,6 +1374,7 @@ async function loadCoverImages(): Promise<void> {
     images.map(async (image) => {
       const path = image.dataset.coverUrl;
       if (!path) return;
+      const shell = image.closest("[data-cover-shell]");
       try {
         const response = await fetch(apiUrl(path), { headers: headers() });
         if (!response.ok) throw new Error(`Cover request failed with HTTP ${response.status}`);
@@ -1363,8 +1383,14 @@ async function loadCoverImages(): Promise<void> {
         coverObjectUrls.push(objectUrl);
         image.src = objectUrl;
         image.hidden = false;
+        await image.decode().catch(() => undefined);
+        image.classList.remove("cover-image-broken");
+        shell?.classList.remove("cover-loading", "cover-fallback-active");
       } catch {
         image.classList.add("cover-image-broken");
+        image.hidden = true;
+        shell?.classList.add("cover-fallback-active");
+        shell?.classList.remove("cover-loading");
       }
     }),
   );
