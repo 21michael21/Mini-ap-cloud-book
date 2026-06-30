@@ -270,7 +270,7 @@ async def handle_document(message: Message) -> None:
 
     note = " It is over 20 MB, so it is saved but cannot open in-app in the MVP." if too_large else ""
     duplicate_note = (
-        f"\n\nThis looks similar to an existing item: {possible_duplicate.title}."
+        f"\n\nThis looks similar to: {possible_duplicate.title}.\nSaved anyway."
         if possible_duplicate is not None
         else ""
     )

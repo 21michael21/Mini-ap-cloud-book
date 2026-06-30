@@ -847,10 +847,16 @@ input:focus-visible {
   width: 44px;
   height: 44px;
   place-items: center;
-  border: 1px solid var(--button-border);
+  border: 1px solid var(--accent-border);
   border-radius: 10px;
   background: var(--button-bg);
-  color: var(--button-muted-text);
+  color: var(--button-text);
+  box-shadow: inset 0 0 0 1px var(--accent-soft);
+}
+
+.row-menu-button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .row-menu-button:active {
@@ -891,6 +897,19 @@ input:focus-visible {
   color: var(--accent);
   font-size: 9px;
   font-weight: 600;
+}
+
+.duplicate-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 17px;
+  padding: 1px 7px;
+  border: 1px solid rgba(224, 163, 90, 0.45);
+  border-radius: 999px;
+  background: rgba(224, 163, 90, 0.14);
+  color: #e0a35a;
+  font-size: 9px;
+  font-weight: 700;
 }
 
 .row-body h2 {
@@ -1380,6 +1399,11 @@ mark {
   opacity: 0.45;
 }
 
+.sheet-action:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .sheet-action.danger {
   color: var(--danger-soft-text);
 }
@@ -1436,18 +1460,25 @@ mark {
 
 .folder-manage-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
 }
 
 .folder-manage-actions button {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 44px;
+  min-height: 38px;
+  padding: 0 8px;
   border: 1px solid var(--button-border);
   border-radius: 12px;
   background: var(--button-bg);
   color: var(--button-text);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .folder-manage-actions button:disabled {
@@ -1516,9 +1547,15 @@ mark {
 }
 
 .sheet-buttons .ghost-button,
-.sheet-buttons .danger-action {
+.sheet-buttons .danger-action,
+.sheet-buttons .primary-action {
   width: 100%;
   margin-top: 0;
+}
+
+.sheet-primary-inline {
+  min-width: 0;
+  padding: 0 14px;
 }
 
 .toast {

@@ -23,6 +23,7 @@ type Book = {
   cover_url: string | null;
   size_bytes: number;
   too_large: boolean;
+  // TODO: expose duplicate_of id before adding an "Open similar item" action.
   possible_duplicate: boolean;
   sort_order: number;
   folder_id: number | null;
@@ -59,6 +60,7 @@ type SheetState =
   | { kind: "move"; book: Book; targetFolderId: number | null }
   | { kind: "edit"; book: Book; title: string; author: string; error: string | null }
   | { kind: "remove"; book: Book; error: string | null }
+  | { kind: "reorderConfirm"; book: Book; direction: "up" | "down"; error: string | null }
   | { kind: "folder"; name: string; error: string | null }
   | { kind: "folderManage"; error: string | null }
   | { kind: "folderEdit"; folder: Folder; name: string; error: string | null }
@@ -364,7 +366,7 @@ async function reorderBook(book: Book, direction: "up" | "down") {
     });
     activeSheet = null;
     hapticSelection();
-    showToast(direction === "up" ? "Moved up" : "Moved down", "success");
+    showToast("Moved", "success");
     await loadBooks(selectedFolderId);
   } catch (error) {
     hapticNotification("error");
@@ -742,11 +744,7 @@ function renderLibraryTabs(): string {
       ${renderTab("All", allBooksState.length, "all", selectedFolderId === "all")}
       ${renderTab("Folders", folderCount, "folders", typeof selectedFolderId === "number")}
     </div>
-    ${
-      typeof selectedFolderId === "number" || selectedFolderId === "all"
-        ? `<div class="folder-strip">${renderFolderChips(true)}<button class="folder-manage-button" type="button" id="manageFolders">${icon("more")}<span>Manage folders</span></button></div>`
-        : ""
-    }
+    <div class="folder-strip">${renderFolderChips(true)}<button class="folder-manage-button" type="button" id="manageFolders" aria-label="Manage folders">${icon("more")}<span>Manage folders</span></button></div>
   `;
 }
 
@@ -842,13 +840,13 @@ function renderBookRow(book: Book, index: number): string {
           <span class="format-badge">${escapeHtml(book.format.toUpperCase())}</span>
           ${book.progress_percent <= 0 ? `<span class="new-badge">NEW</span>` : ""}
           ${book.too_large ? `<span class="new-badge">TOO LARGE</span>` : ""}
-          ${book.possible_duplicate ? `<span class="new-badge">POSSIBLE DUPLICATE</span>` : ""}
+          ${book.possible_duplicate ? `<span class="duplicate-badge">Possible duplicate</span>` : ""}
         </div>
         <h2>${highlightMatch(book.title)}</h2>
         <p>${escapeHtml(book.author ?? "Unknown author")}</p>
         ${renderProgress(book, "Reading progress")}
       </div>
-      <button class="row-menu-button" type="button" data-row-menu="${book.id}" aria-label="Book actions: rename, move, remove">${icon("more")}</button>
+      <button class="row-menu-button" type="button" data-row-menu="${book.id}" aria-label="Open actions for ${escapeHtml(book.title)}">${icon("more")}</button>
     </article>
   `;
 }
@@ -924,6 +922,7 @@ function renderSheet(sheet: SheetState): string {
   if (sheet.kind === "actions") return renderActionsSheet(sheet);
   if (sheet.kind === "edit") return renderEditBookSheet(sheet);
   if (sheet.kind === "remove") return renderRemoveBookSheet(sheet);
+  if (sheet.kind === "reorderConfirm") return renderReorderConfirmSheet(sheet);
   if (sheet.kind === "note") return renderNoteSheet(sheet);
   if (sheet.kind === "notes") return renderNotesSheet(sheet);
   return `
@@ -978,6 +977,7 @@ function renderSheetBook(book: Book): string {
 
 function renderActionsSheet(sheet: Extract<SheetState, { kind: "actions" }>): string {
   const orderState = bookOrderState(sheet.book);
+  const manualReorder = librarySort === "manual";
   return `
     <div class="sheet-layer" id="sheetScrim">
       <section class="bottom-sheet sheet-up" aria-label="Book actions">
@@ -985,12 +985,31 @@ function renderActionsSheet(sheet: Extract<SheetState, { kind: "actions" }>): st
         ${renderSheetBook(sheet.book)}
         ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
         <div class="sheet-actions">
-          <button class="sheet-action" type="button" id="sheetRead">${icon("bookOpen")}<span>Read</span></button>
+          <button class="sheet-action" type="button" id="sheetRead">${icon("bookOpen")}<span class="sheet-action-copy"><strong>Read</strong><small>Open this book</small></span></button>
           <button class="sheet-action" type="button" id="sheetEdit" aria-label="Rename. Edit title and author">${icon("edit")}<span class="sheet-action-copy"><strong>Rename</strong><small>Edit title and author</small></span></button>
-          <button class="sheet-action" type="button" id="sheetMove">${icon("folderPlus")}<span>Move to folder</span></button>
-          <button class="sheet-action" type="button" id="sheetMoveUp" ${orderState.canMoveUp ? "" : "disabled"}>${icon("arrowUp")}<span>Move up</span></button>
-          <button class="sheet-action" type="button" id="sheetMoveDown" ${orderState.canMoveDown ? "" : "disabled"}>${icon("arrowDown")}<span>Move down</span></button>
-          <button class="sheet-action danger" type="button" id="sheetRemove">${icon("trash")}<span>Remove from library</span></button>
+          <button class="sheet-action" type="button" id="sheetMove">${icon("folderPlus")}<span class="sheet-action-copy"><strong>Move to folder</strong><small>Inbox or any folder</small></span></button>
+          <button class="sheet-action" type="button" id="sheetMoveUp" ${orderState.canMoveUp ? "" : "disabled"} data-reorder-needs-confirm="${manualReorder ? "false" : "true"}">${icon("arrowUp")}<span class="sheet-action-copy"><strong>Move up</strong><small>${manualReorder ? "Manual order" : "Switch to Manual sort first"}</small></span></button>
+          <button class="sheet-action" type="button" id="sheetMoveDown" ${orderState.canMoveDown ? "" : "disabled"} data-reorder-needs-confirm="${manualReorder ? "false" : "true"}">${icon("arrowDown")}<span class="sheet-action-copy"><strong>Move down</strong><small>${manualReorder ? "Manual order" : "Switch to Manual sort first"}</small></span></button>
+          <button class="sheet-action" type="button" id="sheetNotes">${icon("bookmark")}<span class="sheet-action-copy"><strong>Notes</strong><small>Bookmarks for this book</small></span></button>
+          <button class="sheet-action danger" type="button" id="sheetRemove">${icon("trash")}<span class="sheet-action-copy"><strong>Remove from library</strong><small>Telegram file stays untouched</small></span></button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderReorderConfirmSheet(sheet: Extract<SheetState, { kind: "reorderConfirm" }>): string {
+  return `
+    <div class="sheet-layer" id="sheetScrim">
+      <section class="bottom-sheet sheet-up" aria-label="Switch to manual sort">
+        <div class="sheet-handle"></div>
+        ${renderSheetBook(sheet.book)}
+        <h3>Switch to Manual sort?</h3>
+        <p class="sheet-note">Move ${sheet.direction === "up" ? "up" : "down"} works in Manual order. Your list will switch from the current sort to Manual.</p>
+        ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
+        <div class="sheet-buttons">
+          <button class="ghost-button sheet-cancel" type="button" id="cancelReorder">Cancel</button>
+          <button class="primary-action sheet-primary-inline" type="button" id="confirmReorder" ${pendingAction === "reorder" ? "disabled" : ""}>${pendingAction === "reorder" ? "Moving..." : "Switch and move"}</button>
         </div>
       </section>
     </div>
@@ -1081,7 +1100,7 @@ function renderRemoveBookSheet(sheet: Extract<SheetState, { kind: "remove" }>): 
       <section class="bottom-sheet sheet-up" aria-label="Remove book">
         <div class="sheet-handle"></div>
         ${renderSheetBook(sheet.book)}
-        <h3>Remove this item from your library?</h3>
+        <h3>Remove from library?</h3>
         <p class="sheet-note">The original Telegram file is not deleted.</p>
         ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
         <div class="sheet-buttons">
@@ -1220,10 +1239,10 @@ function renderFolderManageRow(folder: Folder, index: number): string {
         <small>${count} ${count === 1 ? "book" : "books"}</small>
       </div>
       <div class="folder-manage-actions">
-        <button type="button" data-folder-edit="${folder.id}" aria-label="Rename folder">${icon("edit")}</button>
-        <button type="button" data-folder-up="${folder.id}" ${index === 0 ? "disabled" : ""} aria-label="Move folder left">${icon("arrowUp")}</button>
-        <button type="button" data-folder-down="${folder.id}" ${index === foldersState.length - 1 ? "disabled" : ""} aria-label="Move folder right">${icon("arrowDown")}</button>
-        <button class="danger" type="button" data-folder-remove="${folder.id}" aria-label="Delete folder">${icon("trash")}</button>
+        <button type="button" data-folder-edit="${folder.id}" aria-label="Rename folder">${icon("edit")}<span>Rename</span></button>
+        <button type="button" data-folder-up="${folder.id}" ${index === 0 ? "disabled" : ""} aria-label="Move folder up">${icon("arrowUp")}<span>Up</span></button>
+        <button type="button" data-folder-down="${folder.id}" ${index === foldersState.length - 1 ? "disabled" : ""} aria-label="Move folder down">${icon("arrowDown")}<span>Down</span></button>
+        <button class="danger" type="button" data-folder-remove="${folder.id}" aria-label="Delete folder">${icon("trash")}<span>Delete</span></button>
       </div>
     </div>
   `;
@@ -1585,12 +1604,25 @@ function bindSheetControls() {
       activeSheet = { kind: "edit", book, title: book.title, author: book.author ?? "", error: null };
       updateActiveSheet();
     });
-    document.querySelector("#sheetMoveUp")?.addEventListener("click", () => void reorderBook(book, "up"));
-    document.querySelector("#sheetMoveDown")?.addEventListener("click", () => void reorderBook(book, "down"));
+    document.querySelector("#sheetMoveUp")?.addEventListener("click", () => startBookReorder(book, "up"));
+    document.querySelector("#sheetMoveDown")?.addEventListener("click", () => startBookReorder(book, "down"));
+    document.querySelector("#sheetNotes")?.addEventListener("click", () => void showNotesForBook(book));
     document.querySelector("#sheetRemove")?.addEventListener("click", () => {
       hapticSelection();
       activeSheet = { kind: "remove", book, error: null };
       updateActiveSheet();
+    });
+    return;
+  }
+  if (activeSheet.kind === "reorderConfirm") {
+    const book = activeSheet.book;
+    const direction = activeSheet.direction;
+    document.querySelector("#cancelReorder")?.addEventListener("click", () => {
+      activeSheet = { kind: "actions", book, error: null };
+      updateActiveSheet();
+    });
+    document.querySelector("#confirmReorder")?.addEventListener("click", () => {
+      void reorderBook(book, direction);
     });
     return;
   }
@@ -1675,6 +1707,16 @@ function bindSheetControls() {
     if (!activeSheet || activeSheet.kind !== "move") return;
     void moveBookToFolder(activeSheet.book, activeSheet.targetFolderId);
   });
+}
+
+function startBookReorder(book: Book, direction: "up" | "down") {
+  if (librarySort !== "manual") {
+    hapticSelection();
+    activeSheet = { kind: "reorderConfirm", book, direction, error: null };
+    updateActiveSheet();
+    return;
+  }
+  void reorderBook(book, direction);
 }
 
 function clearSearch() {

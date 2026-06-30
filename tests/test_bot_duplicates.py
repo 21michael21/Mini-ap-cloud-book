@@ -156,7 +156,8 @@ def test_possible_duplicate_heuristic_does_not_block_upload(monkeypatch, tmp_pat
     assert stored[1].possible_duplicate is True
     assert first.bot.download_count == 0
     assert second.bot.download_count == 0
-    assert "This looks similar to an existing item" in second.answers[-1]
+    assert "This looks similar to:" in second.answers[-1]
+    assert "Saved anyway." in second.answers[-1]
 
 
 def test_upload_attempts_epub_cover_extraction(monkeypatch, tmp_path: Path) -> None:

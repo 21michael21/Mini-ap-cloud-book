@@ -298,15 +298,51 @@ test.describe("reader e2e", () => {
     await maybeScreenshot(page, testInfo, "library-card-cover-fallback");
 
     await openBookActions(page, books.rename);
+    await expect(page.locator("#sheetRead")).toContainText("Read");
+    await expect(page.locator("#sheetEdit")).toContainText("Edit title and author");
+    await expect(page.locator("#sheetMove")).toContainText("Move to folder");
+    await expect(page.locator("#sheetMoveUp")).toContainText(/Move up/);
+    await expect(page.locator("#sheetMoveDown")).toContainText(/Move down/);
+    await expect(page.locator("#sheetNotes")).toContainText("Notes");
+    await expect(page.locator("#sheetRemove")).toContainText("Remove from library");
     await expectLoadedCover(page.locator(".bottom-sheet"));
     await maybeScreenshot(page, testInfo, "book-actions-sheet");
     await page.locator("#sheetEdit").click();
+    await expect(page.locator("#bookTitleInput")).toBeFocused();
+    await page.locator("#bookTitleInput").fill("");
+    await expect(page.locator("#confirmBookEdit")).toBeDisabled();
     await page.locator("#bookTitleInput").fill("Reader E2E Renamed EPUB");
+    await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "rename-sheet");
     await page.locator("#confirmBookEdit").click();
+    await expect(page.locator(".toast")).toContainText("Book updated");
     await page.locator("#searchInput").fill("Reader E2E Renamed EPUB");
     const renamedRow = page.locator(".book-row", { hasText: "Reader E2E Renamed EPUB" }).first();
     await expect(renamedRow).toBeVisible();
     await expectLoadedCover(renamedRow);
+
+    await page.locator("#searchInput").fill("");
+    await page.locator("[data-sort='manual']").click();
+    const reorderRow = page.locator(".book-row", { hasText: books.move }).first();
+    await expect(reorderRow).toBeVisible();
+    const menuButton = reorderRow.locator("[data-row-menu]");
+    await expect(menuButton).toBeVisible();
+    await expect(menuButton).toHaveAttribute("aria-label", /Open actions/);
+    const menuBox = await menuButton.boundingBox();
+    expect(menuBox?.width).toBeGreaterThanOrEqual(44);
+    expect(menuBox?.height).toBeGreaterThanOrEqual(44);
+    await menuButton.click();
+    await expect(page.locator(".bottom-sheet")).toBeVisible();
+    const moveUp = page.locator("#sheetMoveUp");
+    if (await moveUp.isEnabled()) {
+      await moveUp.click();
+      await expect(page.locator(".toast")).toContainText("Moved");
+    }
+    await openBookActionsWithoutSearch(page, books.move);
+    const moveDown = page.locator("#sheetMoveDown");
+    if (await moveDown.isEnabled()) {
+      await moveDown.click();
+      await expect(page.locator(".toast")).toContainText("Moved");
+    }
 
     await openBookActions(page, books.move);
     await page.locator("#sheetMove").click();
@@ -318,8 +354,37 @@ test.describe("reader e2e", () => {
 
     await openBookActions(page, books.delete);
     await page.locator("#sheetRemove").click();
+    await expect(page.locator(".bottom-sheet")).toContainText("Remove from library?");
+    await expect(page.locator(".bottom-sheet")).toContainText("The original Telegram file is not deleted.");
+    await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "remove-confirmation");
     await page.locator("#confirmRemove").click();
     await expect(page.locator(".book-row", { hasText: books.delete })).toHaveCount(0);
+
+    await page.locator("#searchInput").fill(books.txt);
+    const duplicateRow = page.locator(".book-row", { hasText: books.txt }).first();
+    await expect(duplicateRow.locator(".duplicate-badge")).toContainText("Possible duplicate");
+    await maybeScreenshot(page, testInfo, "possible-duplicate-row");
+
+    await page.locator("#searchInput").fill("");
+    await page.locator("#manageFolders").click();
+    await expect(page.locator(".folder-manage-sheet")).toBeVisible();
+    await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "manage-folders-sheet");
+    await page.locator("#folderManageNew").click();
+    await page.locator("#folderNameInput").fill("Second E2E Folder");
+    await page.locator("#confirmFolder").click();
+    await expect(page.locator(".toast")).toContainText("Folder created");
+    await page.locator("#manageFolders").click();
+    await page.locator("[data-folder-edit]").first().click();
+    await page.locator("#folderEditNameInput").fill("Renamed E2E Folder");
+    await page.locator("#confirmFolderEdit").click();
+    await expect(page.locator(".toast")).toContainText("Folder renamed");
+    await page.locator("[data-folder-down]").first().click();
+    await expect(page.locator(".toast")).toContainText("Folder moved");
+    await page.locator("[data-folder-remove]").first().click();
+    await expect(page.locator(".bottom-sheet")).toContainText("Books stay in your library and move back to Inbox.");
+    await page.locator("#confirmFolderRemove").click();
+    await expect(page.locator(".toast")).toContainText("Folder deleted");
+
     await maybeScreenshot(page, testInfo, "library-management");
   });
 
@@ -463,6 +528,13 @@ async function leaveReader(page: Page): Promise<void> {
 async function openBookActions(page: Page, title: string): Promise<void> {
   await openLibrary(page);
   await page.locator("#searchInput").fill(title);
+  const row = page.locator(".book-row", { hasText: title }).first();
+  await expect(row).toBeVisible();
+  await row.locator("[data-row-menu]").click();
+  await expect(page.locator(".bottom-sheet")).toBeVisible();
+}
+
+async function openBookActionsWithoutSearch(page: Page, title: string): Promise<void> {
   const row = page.locator(".book-row", { hasText: title }).first();
   await expect(row).toBeVisible();
   await row.locator("[data-row-menu]").click();

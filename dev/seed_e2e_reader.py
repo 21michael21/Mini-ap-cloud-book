@@ -107,7 +107,7 @@ def main() -> None:
                 cover_ref=cover_ref,
                 size_bytes=path.stat().st_size,
                 too_large=False,
-                possible_duplicate=False,
+                possible_duplicate=path.name == "long.txt",
                 sort_order=index * 10,
                 folder_id=None,
             )
