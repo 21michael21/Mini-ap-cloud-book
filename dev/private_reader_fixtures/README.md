@@ -19,6 +19,14 @@ cd miniapp
 npm run build:harness
 ```
 
+To test the experimental `foliate-view` reader spike without changing the
+production reader:
+
+```bash
+cd miniapp
+VITE_READER_ENGINE=foliate-view npm run build:harness:foliate-view
+```
+
 Private files are for local reproduction only. When you identify a rendering pattern,
 add a tiny synthetic fixture to `dev/generate_reader_samples.py` instead of copying
 book text into the repo.

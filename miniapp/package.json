@@ -9,6 +9,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
     "build:harness": "tsc && VERIFY_READER=1 vite build --outDir dist-harness",
+    "build:harness:foliate-view": "tsc && VERIFY_FOLIATE_VIEW=1 vite build --outDir dist-foliate-view-harness",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {

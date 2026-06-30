@@ -1733,6 +1733,11 @@ foliate-view {
   height: calc(100vh - 72px);
 }
 
+.foliate-view-reader {
+  min-height: calc(100vh - 176px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  min-height: calc(100dvh - 176px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+}
+
 .book-frame {
   display: block;
   width: 100%;

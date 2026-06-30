@@ -78,6 +78,7 @@ class ApiError extends Error {
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? window.location.origin;
+const READER_ENGINE = import.meta.env.VITE_READER_ENGINE === "foliate-view" ? "foliate-view" : "custom";
 const appEl = document.querySelector<HTMLDivElement>("#app")!;
 const tg = window.Telegram?.WebApp;
 
@@ -1791,7 +1792,11 @@ async function renderTextBook(book: Book) {
     const restoreLocator = activeReaderRestoreLocator ?? pos?.locator ?? null;
     activeReaderRestoreLocator = null;
     const file = await fetchBookFile(API_BASE, initData(), book);
-    const controller = await openFoliateReader(
+    const openTextReader =
+      READER_ENGINE === "foliate-view"
+        ? (await import("./readerEngines/foliateViewEngine")).openFoliateViewReader
+        : openFoliateReader;
+    const controller = await openTextReader(
       stage,
       file,
       restoreLocator,
