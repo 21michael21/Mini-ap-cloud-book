@@ -293,7 +293,12 @@ async function runFixtureExperiment(
     await openBook(page, fixture.title);
     opened = (await page.locator("#readerStage").isVisible().catch(() => false)) && (await page.locator(".reader-error").count()) === 0;
     progressVisible = await page.locator("#readerBottomProgress").isVisible().catch(() => false);
-    visibleTextLength = await readerVisibleTextLength(page, fixture.format);
+    visibleTextLength = await waitForReaderVisibleTextLength(page, fixture.format);
+    if (!opened) errors.push("reader did not open cleanly");
+    if (!progressVisible) errors.push("bottom progress was not visible");
+    if (fixture.format !== "pdf" && visibleTextLength < 200) {
+      errors.push(`visible text too short: ${visibleTextLength}`);
+    }
 
     if (fixture.format === "pdf") {
       pdfCanvasQuality = await page.locator(".pdf-canvas").evaluate((canvasElement: HTMLCanvasElement) => {
@@ -310,9 +315,9 @@ async function runFixtureExperiment(
         errors.push(String(error));
         return false;
       });
-      positionRestore = opened && progressVisible;
+      positionRestore = await checkPdfPositionRestore(page, fixture.title, errors);
     } else {
-      const beforeFont = await optionalReaderFontSize(page);
+      const beforeFont = await waitForOptionalReaderFontSize(page);
       const settingsButton = page.locator("#readerSettingsButton");
       const fontUpButton = page.locator("#readerFontUp");
       if (!(await settingsButton.isVisible().catch(() => false))) {
@@ -327,9 +332,15 @@ async function runFixtureExperiment(
       }
       const afterFont = await optionalReaderFontSize(page);
       fontSizeWorks = beforeFont !== null && afterFont !== null ? afterFont > beforeFont : false;
+      if (!fontSizeWorks) {
+        errors.push(`font size did not change observably: before=${beforeFont ?? "unknown"} after=${afterFont ?? "unknown"}`);
+      }
+      await page.locator('[data-reader-theme="sepia"]').click({ timeout: 500 }).catch(() => undefined);
+      await expectReadableButton(settingsButton).catch((error) => errors.push(`theme contrast check failed: ${error.message}`));
       await quickCloseSheet(page);
-      positionRestore = opened && progressVisible;
+      positionRestore = await checkTextPositionRestore(page, fixture.title, errors);
     }
+    if (!positionRestore) errors.push("position restore did not return to the exercised location");
 
     screenshotPath = await saveExperimentScreenshot(page, testInfo, fixture.fixture);
     await page.locator("#backButton").click({ timeout: 500 }).catch(() => undefined);
@@ -430,6 +441,68 @@ async function progressPercent(page: Page): Promise<number> {
   return Number.parseFloat(text.replace("%", "")) || 0;
 }
 
+async function checkTextPositionRestore(page: Page, title: string, errors: string[]): Promise<boolean> {
+  const before = await readerPositionSignature(page);
+  const next = page.locator("#readerNext");
+  if (await next.isVisible().catch(() => false)) {
+    const disabled = await next.evaluate((button: HTMLButtonElement) => button.disabled).catch(() => true);
+    if (!disabled) await next.click({ timeout: 700 }).catch((error) => errors.push(`next failed: ${error.message}`));
+  }
+  await page.waitForTimeout(800);
+  let exercised = await readerPositionSignature(page);
+  if (!positionMoved(before, exercised)) {
+    await scrollCurrentReader(page, 0.6);
+    await page.waitForTimeout(800);
+    exercised = await readerPositionSignature(page);
+  }
+  if (!positionMoved(before, exercised)) {
+    errors.push(`text position did not move from "${before.label}" (${before.percent}%)`);
+    return false;
+  }
+  await leaveReader(page);
+  await openBook(page, title);
+  await page.waitForTimeout(800);
+  const restored = await readerPositionSignature(page);
+  if (positionsMatch(exercised, restored)) return true;
+  errors.push(
+    `text restore mismatch: exercised="${exercised.label}" ${exercised.percent}%, restored="${restored.label}" ${restored.percent}%`,
+  );
+  return false;
+}
+
+async function checkPdfPositionRestore(page: Page, title: string, errors: string[]): Promise<boolean> {
+  const before = await readerPositionSignature(page);
+  const next = page.locator("#readerNext");
+  if (await next.isVisible().catch(() => false)) await next.click({ timeout: 700 }).catch((error) => errors.push(`pdf next failed: ${error.message}`));
+  await page.waitForTimeout(800);
+  const exercised = await readerPositionSignature(page);
+  if (!positionMoved(before, exercised)) {
+    errors.push(`pdf page did not move from "${before.label}"`);
+    return false;
+  }
+  await leaveReader(page);
+  await openBook(page, title);
+  await page.waitForTimeout(800);
+  const restored = await readerPositionSignature(page);
+  if (positionsMatch(exercised, restored)) return true;
+  errors.push(`pdf restore mismatch: exercised="${exercised.label}", restored="${restored.label}"`);
+  return false;
+}
+
+async function readerPositionSignature(page: Page): Promise<{ label: string; percent: number }> {
+  const label = (await page.locator("#readerBottomLabel").innerText().catch(() => "")).trim();
+  return { label, percent: await progressPercent(page).catch(() => 0) };
+}
+
+function positionMoved(before: { label: string; percent: number }, after: { label: string; percent: number }): boolean {
+  return before.label !== after.label || Math.abs(after.percent - before.percent) >= 1;
+}
+
+function positionsMatch(expected: { label: string; percent: number }, actual: { label: string; percent: number }): boolean {
+  if (expected.label && expected.label === actual.label) return true;
+  return Math.abs(expected.percent - actual.percent) <= 2 && actual.percent > 0;
+}
+
 async function closeSheet(page: Page): Promise<void> {
   await page.keyboard.press("Escape").catch(() => undefined);
   const scrim = page.locator("#sheetScrim");
@@ -512,30 +585,107 @@ async function readerVisibleTextLength(page: Page, format: string): Promise<numb
   }
   const frameCount = await page.locator(".book-frame").count();
   if (frameCount > 0) {
-    return page.locator(".book-frame").evaluate((iframe: HTMLIFrameElement) => {
-      return (iframe.contentDocument?.body?.innerText ?? "").trim().length;
+    return page.locator(".book-frame").evaluateAll((iframes: HTMLIFrameElement[]) => {
+      return Math.max(
+        0,
+        ...iframes.map((iframe) => {
+          const doc = iframe.contentDocument;
+          const candidates = [
+            doc?.body?.innerText,
+            doc?.body?.textContent,
+            doc?.documentElement?.innerText,
+            doc?.documentElement?.textContent,
+          ];
+          return Math.max(0, ...candidates.map((text) => (text ?? "").replace(/\s+/g, " ").trim().length));
+        }),
+      );
+    }).catch(() => 0);
+  }
+  const foliateCount = await page.locator(".foliate-view-reader").count();
+  if (foliateCount > 0) {
+    return page.locator(".foliate-view-reader").evaluate((element) => {
+      const texts: string[] = [];
+      const collect = (root: ParentNode | null | undefined) => {
+        if (!root) return;
+        if (root instanceof Document) {
+          texts.push(root.body?.innerText ?? "", root.body?.textContent ?? "", root.documentElement?.textContent ?? "");
+        }
+        if (root instanceof ShadowRoot && root.textContent) texts.push(root.textContent);
+        root.querySelectorAll?.("iframe").forEach((iframe) => {
+          if (iframe instanceof HTMLIFrameElement) {
+            texts.push(
+              iframe.contentDocument?.body?.innerText ?? "",
+              iframe.contentDocument?.body?.textContent ?? "",
+              iframe.contentDocument?.documentElement?.textContent ?? "",
+            );
+          }
+        });
+        root.querySelectorAll?.("*").forEach((node) => {
+          const shadowRoot = (node as Element).shadowRoot;
+          if (shadowRoot) collect(shadowRoot);
+        });
+      };
+      collect(element.shadowRoot);
+      collect(element);
+      if (!texts.join("").trim() && element.textContent) texts.push(element.textContent);
+      return texts.join("\n").trim().length;
     }).catch(() => 0);
   }
   return (await page.locator("#readerStage").innerText().catch(() => "")).trim().length;
 }
 
+async function waitForReaderVisibleTextLength(page: Page, format: string): Promise<number> {
+  const threshold = format === "pdf" ? 1 : 200;
+  let latest = 0;
+  const deadline = Date.now() + 2500;
+  while (Date.now() < deadline) {
+    latest = await readerVisibleTextLength(page, format);
+    if (latest >= threshold) return latest;
+    await page.waitForTimeout(100);
+  }
+  return latest;
+}
+
 async function optionalReaderFontSize(page: Page): Promise<number | null> {
   const frameCount = await page.locator(".book-frame").count();
   if (frameCount > 0) {
-    return page.locator(".book-frame").evaluate((iframe: HTMLIFrameElement) => {
-      const body = iframe.contentDocument?.body;
-      const root = iframe.contentDocument?.documentElement;
-      const bodySize = body ? Number.parseFloat(getComputedStyle(body).fontSize) : Number.NaN;
-      if (Number.isFinite(bodySize)) return bodySize;
-      const rootSize = root ? Number.parseFloat(getComputedStyle(root).fontSize) : Number.NaN;
-      return Number.isFinite(rootSize) ? rootSize : null;
+    return page.locator(".book-frame").evaluateAll((iframes: HTMLIFrameElement[]) => {
+      const sizes = iframes.flatMap((iframe) => {
+        const rect = iframe.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return [];
+        const body = iframe.contentDocument?.body;
+        const root = iframe.contentDocument?.documentElement;
+        const bodySize = body ? Number.parseFloat(getComputedStyle(body).fontSize) : Number.NaN;
+        const rootSize = root ? Number.parseFloat(getComputedStyle(root).fontSize) : Number.NaN;
+        return [bodySize, rootSize].filter(Number.isFinite);
+      });
+      return sizes.length ? Math.max(...sizes) : null;
     }).catch(() => null);
   }
   const foliateCount = await page.locator(".foliate-view-reader").count();
   if (foliateCount > 0) {
-    return page.locator(".foliate-view-reader").evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize)).catch(() => null);
+    return page.locator(".foliate-view-reader").evaluate((element) => {
+      const hostSize = Number.parseFloat(getComputedStyle(element).fontSize);
+      const shadow = element.shadowRoot;
+      const iframe = shadow?.querySelector("iframe") ?? element.querySelector("iframe");
+      const body = iframe instanceof HTMLIFrameElement ? iframe.contentDocument?.body : null;
+      const bodySize = body ? Number.parseFloat(getComputedStyle(body).fontSize) : Number.NaN;
+      if (Number.isFinite(bodySize)) return bodySize;
+      return Number.isFinite(hostSize) ? hostSize : null;
+    }).catch(() => null);
   }
   return null;
+}
+
+async function waitForOptionalReaderFontSize(page: Page): Promise<number | null> {
+  let latest: number | null = null;
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    latest = await optionalReaderFontSize(page);
+    if (latest !== null) return latest;
+    await page.waitForTimeout(100);
+  }
+  return latest;
 }
 
 async function scrollCurrentReader(page: Page, ratio: number): Promise<void> {

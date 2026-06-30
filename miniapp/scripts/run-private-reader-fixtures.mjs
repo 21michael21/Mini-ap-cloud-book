@@ -112,7 +112,10 @@ const vite = spawnProcess(
 );
 
 let exitCode = 0;
-const reportPath = resolve(repoDir, "reports/reader-experiments/private-fixtures-summary.json");
+const reportSuffix = process.env.READER_PRIVATE_REPORT_SUFFIX
+  ? `-${process.env.READER_PRIVATE_REPORT_SUFFIX.replace(/[^a-z0-9_.-]/gi, "_")}`
+  : "";
+const reportPath = resolve(repoDir, "reports/reader-experiments", `private-fixtures-summary${reportSuffix}.json`);
 try {
   await waitFor(`${envPayload.apiBase}/health`);
   await waitFor(envPayload.webappUrl);

@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import http from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,9 +35,9 @@ function readModeConfig(overrides = {}) {
 }
 
 const allEngineMatrix = [
-  { name: "custom-clean", textReaderEngine: "custom", textRenderMode: "clean", pdfReaderMode: "canvas", readerUi: "v1" },
-  { name: "custom-original", textReaderEngine: "custom", textRenderMode: "original", pdfReaderMode: "canvas", readerUi: "v1" },
-  { name: "foliate-view-clean", textReaderEngine: "foliate-view", textRenderMode: "clean", pdfReaderMode: "canvas", readerUi: "v1" },
+  { name: "custom-clean-v2", textReaderEngine: "custom", textRenderMode: "clean", pdfReaderMode: "canvas", readerUi: "v2" },
+  { name: "custom-original-v2", textReaderEngine: "custom", textRenderMode: "original", pdfReaderMode: "canvas", readerUi: "v2" },
+  { name: "foliate-view-clean-v2", textReaderEngine: "foliate-view", textRenderMode: "clean", pdfReaderMode: "canvas", readerUi: "v2" },
 ];
 
 function run(command, commandArgs, options = {}) {
@@ -177,12 +177,48 @@ async function runOne(modeConfig, runName, allowFailure = false) {
   return allowFailure ? 0 : exitCode;
 }
 
+function hasPrivateFixtures() {
+  const privateDir = resolve(repoDir, "dev/reader_fixtures/private");
+  if (!existsSync(privateDir)) return false;
+  return readdirSync(privateDir, { withFileTypes: true }).some((entry) => entry.isFile() && entry.name !== "README.md");
+}
+
+function runPrivateOne(modeConfig, runName, allowFailure = false) {
+  const args = [
+    "run",
+    "e2e:reader:private",
+    "--",
+    `--text-reader-engine=${modeConfig.textReaderEngine}`,
+    `--text-render-mode=${modeConfig.textRenderMode}`,
+    `--pdf-reader-mode=${modeConfig.pdfReaderMode}`,
+    `--reader-ui=${modeConfig.readerUi}`,
+  ];
+  try {
+    run("npm", args, {
+      cwd: miniappDir,
+      env: {
+        READER_PRIVATE_REPORT_SUFFIX: runName,
+      },
+    });
+    return 0;
+  } catch (error) {
+    if (!allowFailure) throw error;
+    return 0;
+  }
+}
+
 let finalExitCode = 0;
 if (allEngines) {
+  const privateFixturesPresent = hasPrivateFixtures();
   for (const mode of allEngineMatrix) {
     console.log(`\n=== Reader experiment: ${mode.name} ===`);
     const code = await runOne(mode, mode.name, mode.textReaderEngine !== "custom");
     if (code !== 0) finalExitCode = code;
+    if (privateFixturesPresent) {
+      console.log(`\n=== Private reader fixtures: ${mode.name} ===`);
+      const privateCode = runPrivateOne(mode, mode.name, mode.textReaderEngine !== "custom");
+      if (privateCode !== 0) finalExitCode = privateCode;
+    }
   }
 } else {
   const config = readModeConfig();
