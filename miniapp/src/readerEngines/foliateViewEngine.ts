@@ -182,7 +182,9 @@ export async function openFoliateViewReader(
   }
 
   function positionFromLocation(location: FoliateLocation | null): Position {
-    const percent = clamp((location?.fraction ?? restored?.percent ?? 0) * 100, 0, 100);
+    const rawFraction = location?.fraction;
+    const fraction = typeof rawFraction === "number" && Number.isFinite(rawFraction) ? rawFraction : (restored?.percent ?? 0) / 100;
+    const percent = clamp(fraction * 100, 0, 100);
     const target = location?.cfi ?? (typeof location?.fraction === "number" ? { fraction: location.fraction } : restored?.target ?? null);
     return {
       locator: makeFoliateLocator(target, percent),
@@ -323,5 +325,6 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
 }
 
 function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
 }

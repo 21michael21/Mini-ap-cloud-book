@@ -8,6 +8,7 @@ import {
   openFoliateReader,
   openPdfReader,
 } from "./readerCore";
+import { readerFeatureFlags } from "./featureFlags";
 import "./styles.css";
 
 type Book = {
@@ -82,7 +83,6 @@ class ApiError extends Error {
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? window.location.origin;
-const READER_ENGINE = import.meta.env.VITE_READER_ENGINE === "foliate-view" ? "foliate-view" : "custom";
 const appEl = document.querySelector<HTMLDivElement>("#app")!;
 const tg = window.Telegram?.WebApp;
 
@@ -1842,7 +1842,7 @@ async function renderTextBook(book: Book) {
     activeReaderRestoreLocator = null;
     const file = await fetchBookFile(API_BASE, initData(), book);
     const openTextReader =
-      READER_ENGINE === "foliate-view"
+      readerFeatureFlags.textReaderEngine === "foliate-view"
         ? (await import("./readerEngines/foliateViewEngine")).openFoliateViewReader
         : openFoliateReader;
     const controller = await openTextReader(
@@ -1860,6 +1860,7 @@ async function renderTextBook(book: Book) {
         theme: readerTheme,
         onTap: toggleReaderToolbar,
         onNearTop: showReaderToolbar,
+        renderMode: readerFeatureFlags.textRenderMode,
       },
     );
     bindTextReaderControls(controller);
@@ -1876,6 +1877,9 @@ async function renderPdf(book: Book) {
     const restoreLocator = activeReaderRestoreLocator ?? pos?.locator ?? null;
     activeReaderRestoreLocator = null;
     const file = await fetchBookFile(API_BASE, initData(), book);
+    if (readerFeatureFlags.pdfReaderMode === "viewer-shell") {
+      console.warn("PDF viewer-shell experiment is not implemented yet; using canvas reader.");
+    }
     let pdfReader: PdfReaderController | null = null;
     pdfReader = await openPdfReader(
       stage,

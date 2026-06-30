@@ -13,6 +13,9 @@
     "e2e:reader": "node scripts/run-reader-e2e.mjs",
     "e2e:reader:mobile": "node scripts/run-reader-e2e.mjs --project=mobile",
     "e2e:reader:screenshots": "node scripts/run-reader-e2e.mjs --screenshots",
+    "e2e:reader:custom": "node scripts/run-reader-e2e.mjs --text-reader-engine=custom --text-render-mode=clean --pdf-reader-mode=canvas --reader-ui=v1",
+    "e2e:reader:foliate": "node scripts/run-reader-e2e.mjs --text-reader-engine=foliate-view --text-render-mode=clean --pdf-reader-mode=canvas --reader-ui=v1",
+    "e2e:reader:all-engines": "node scripts/run-reader-e2e.mjs --all-engines",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {

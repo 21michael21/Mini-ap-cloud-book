@@ -44,6 +44,7 @@ export type TextReaderController = {
 export type TextReaderOptions = {
   fontSizePx?: number;
   theme?: ReaderContentTheme;
+  renderMode?: TextRenderMode;
   onTap?: () => void;
   onNearTop?: () => void;
 };
@@ -94,6 +95,7 @@ type PlainTextBook = {
 };
 
 export type ReaderContentTheme = "dark" | "light" | "sepia";
+export type TextRenderMode = "clean" | "original";
 
 type FoliateBook = PlainTextBook & {
   sections: Array<{
@@ -209,6 +211,7 @@ export async function openFoliateReader(
   let isSwitchingSection = false;
   let fontSizePx = options.fontSizePx ?? 18;
   let theme: ReaderContentTheme = options.theme ?? "dark";
+  const renderMode: TextRenderMode = options.renderMode ?? "clean";
 
   const currentPosition = (): Position => {
     const currentRatio = getIframeScrollRatio(iframe);
@@ -260,6 +263,7 @@ export async function openFoliateReader(
       () => options.onTap?.(),
       fontSizePx,
       theme,
+      renderMode,
     );
     const renderedText = iframe.contentDocument?.body?.innerText?.trim() || `${EMPTY_SECTION_TITLE} ${EMPTY_SECTION_HINT}`;
     warnReaderDiagnostics(
@@ -609,8 +613,9 @@ async function renderSectionIframe(
   onTap: () => void,
   fontSizePx: number,
   theme: ReaderContentTheme,
+  renderMode: TextRenderMode,
 ): Promise<HTMLIFrameElement> {
-  const { src, srcdoc } = await makeSafeSectionUrl(section);
+  const { src, srcdoc } = await makeSafeSectionUrl(section, renderMode);
   const iframe = document.createElement("iframe");
   iframe.className = "book-frame";
   iframe.setAttribute("sandbox", "allow-same-origin");
@@ -648,22 +653,29 @@ async function renderSectionIframe(
   return iframe;
 }
 
-async function makeSafeSectionUrl(section: FoliateBook["sections"][number]): Promise<{ src: string | null; srcdoc: string | null }> {
+async function makeSafeSectionUrl(
+  section: FoliateBook["sections"][number],
+  renderMode: TextRenderMode,
+): Promise<{ src: string | null; srcdoc: string | null }> {
   const doc = section.createDocument ? await section.createDocument() : null;
   if (!doc) {
     const source = await section.load();
     const parsed = parseLoadedHtml(source);
     if (parsed) {
-      return { src: null, srcdoc: makeCleanReaderHtml(parsed) };
+      return { src: null, srcdoc: makeReaderHtml(parsed, renderMode) };
     }
     return { src: source, srcdoc: null };
   }
-  return { src: null, srcdoc: makeCleanReaderHtml(doc) };
+  return { src: null, srcdoc: makeReaderHtml(doc, renderMode) };
 }
 
 function parseLoadedHtml(source: string): Document | null {
   if (!source.trim().startsWith("<")) return null;
   return new DOMParser().parseFromString(source, "text/html");
+}
+
+function makeReaderHtml(sourceDoc: Document, renderMode: TextRenderMode): string {
+  return renderMode === "original" ? makeOriginalReaderHtml(sourceDoc) : makeCleanReaderHtml(sourceDoc);
 }
 
 function makeCleanReaderHtml(sourceDoc: Document): string {
@@ -697,6 +709,63 @@ function makeCleanReaderHtml(sourceDoc: Document): string {
   appendCleanChildren(sourceRoot, article, cleanDoc);
   if (isUnreadableCleanSection(article)) appendEmptySectionFallback(article, cleanDoc);
   return `<!doctype html>${cleanDoc.documentElement.outerHTML}`;
+}
+
+function makeOriginalReaderHtml(sourceDoc: Document): string {
+  const originalDoc = document.implementation.createHTMLDocument(sourceDoc.title || "Book section");
+  const sourceRoot = sourceDoc.documentElement.cloneNode(true) as HTMLElement;
+  sanitizeOriginalReaderNode(sourceRoot);
+  const sourceHead = sourceRoot.querySelector("head");
+  const sourceBody = sourceRoot.querySelector("body");
+
+  originalDoc.documentElement.lang =
+    sourceRoot.getAttribute("lang") ?? sourceRoot.getAttribute("xml:lang") ?? sourceBody?.getAttribute("lang") ?? "ru";
+  const dir = sourceRoot.getAttribute("dir") ?? sourceBody?.getAttribute("dir");
+  if (dir === "ltr" || dir === "rtl" || dir === "auto") originalDoc.documentElement.dir = dir;
+
+  const charset = originalDoc.createElement("meta");
+  charset.setAttribute("charset", "utf-8");
+  originalDoc.head.append(charset);
+  const viewport = originalDoc.createElement("meta");
+  viewport.name = "viewport";
+  viewport.content = "width=device-width, initial-scale=1";
+  originalDoc.head.append(viewport);
+  const stylesheet = originalDoc.createElement("link");
+  stylesheet.rel = "stylesheet";
+  stylesheet.href = "/reader-content.css";
+  stylesheet.dataset.readerContentCss = "true";
+  originalDoc.head.append(stylesheet);
+  sourceHead
+    ?.querySelectorAll("title, meta[name], meta[property]")
+    .forEach((node) => originalDoc.head.append(node.cloneNode(true)));
+
+  const article = originalDoc.createElement("article");
+  article.className = "reader-article reader-article--original";
+  const children = sourceBody ? sourceBody.childNodes : sourceRoot.childNodes;
+  article.append(...Array.from(children).map((node) => node.cloneNode(true)));
+  originalDoc.body.append(article);
+  if (isUnreadableCleanSection(article)) appendEmptySectionFallback(article, originalDoc);
+  return `<!doctype html>${originalDoc.documentElement.outerHTML}`;
+}
+
+function sanitizeOriginalReaderNode(root: Element): void {
+  root.querySelectorAll(Array.from(DROPPED_READER_TAGS).join(",")).forEach((node) => node.remove());
+  root.querySelectorAll("*").forEach((node) => {
+    Array.from(node.attributes).forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value;
+      if (name.startsWith("on") || name === "style" || name === "srcset") {
+        node.removeAttribute(attribute.name);
+        return;
+      }
+      if ((name === "href" || name === "xlink:href") && !isSafeReaderLinkUrl(value)) {
+        node.removeAttribute(attribute.name);
+      }
+      if (name === "src" && !isSafeReaderImageUrl(value)) {
+        node.removeAttribute(attribute.name);
+      }
+    });
+  });
 }
 
 function isUnreadableCleanSection(article: HTMLElement): boolean {

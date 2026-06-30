@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
+from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile, ZipInfo
 
 
 ROOT = Path(__file__).resolve().parent
@@ -11,12 +11,20 @@ PUBLIC = ROOT / "reader_fixtures" / "public"
 PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADggGOSHzRgAAAAABJRU5ErkJggg=="
 )
+ZIP_TIMESTAMP = (2026, 6, 30, 15, 1, 56)
+
+
+def write_zip_entry(archive: ZipFile, filename: str, data: str | bytes, *, compress_type: int) -> None:
+    info = ZipInfo(filename, date_time=ZIP_TIMESTAMP)
+    info.compress_type = compress_type
+    archive.writestr(info, data)
 
 
 def write_epub(path: Path, *, title: str, chapters: list[str], bad_markup: bool = False) -> None:
     with ZipFile(path, "w") as archive:
-        archive.writestr("mimetype", "application/epub+zip", compress_type=ZIP_STORED)
-        archive.writestr(
+        write_zip_entry(archive, "mimetype", "application/epub+zip", compress_type=ZIP_STORED)
+        write_zip_entry(
+            archive,
             "META-INF/container.xml",
             """<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -34,7 +42,8 @@ def write_epub(path: Path, *, title: str, chapters: list[str], bad_markup: bool 
             f'<li><a href="chapter{index}.xhtml">Section {index}</a></li>'
             for index in range(1, len(chapters) + 1)
         )
-        archive.writestr(
+        write_zip_entry(
+            archive,
             "OEBPS/content.opf",
             f"""<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
@@ -56,8 +65,9 @@ def write_epub(path: Path, *, title: str, chapters: list[str], bad_markup: bool 
 """,
             compress_type=ZIP_DEFLATED,
         )
-        archive.writestr("OEBPS/cover.png", PNG_1X1, compress_type=ZIP_DEFLATED)
-        archive.writestr(
+        write_zip_entry(archive, "OEBPS/cover.png", PNG_1X1, compress_type=ZIP_DEFLATED)
+        write_zip_entry(
+            archive,
             "OEBPS/nav.xhtml",
             f"""<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -68,7 +78,8 @@ def write_epub(path: Path, *, title: str, chapters: list[str], bad_markup: bool 
             compress_type=ZIP_DEFLATED,
         )
         for index, heading in enumerate(chapters, start=1):
-            archive.writestr(
+            write_zip_entry(
+                archive,
                 f"OEBPS/chapter{index}.xhtml",
                 chapter_html(title, heading, index, bad_markup=bad_markup),
                 compress_type=ZIP_DEFLATED,

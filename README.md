@@ -374,6 +374,11 @@ without CSP violations in Telegram WebView.
 
 Book HTML is sanitized before rendering and placed in sandboxed iframes with `sandbox="allow-same-origin"` and no `allow-scripts`.
 
+Reader A/B flags are for local experiments only and must not be set on VDS until
+a reader decision is made. See `docs/reader-quality/ab-reader-experiments.md`
+for `VITE_TEXT_READER_ENGINE`, `VITE_TEXT_RENDER_MODE`, `VITE_PDF_READER_MODE`,
+and `VITE_READER_UI`.
+
 The backend file cache is bounded by `FILE_CACHE_MAX_BYTES` and `FILE_CACHE_MAX_AGE_SECONDS`.
 Cleanup runs around file fetches and removes expired files first, then least-recently-used files until the cache is under the size cap.
 

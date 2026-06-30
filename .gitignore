@@ -26,5 +26,7 @@ miniapp/dist-harness/
 miniapp/playwright-report/
 miniapp/test-results/
 tests/screenshots/artifacts/
+reports/reader-experiments/*.json
+reports/reader-experiments/screenshots/
 htmlcov/
 .coverage
