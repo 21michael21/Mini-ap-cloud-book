@@ -53,6 +53,7 @@ body {
   font-size: 1rem;
   line-height: 1.68;
   margin: 0;
+  padding-bottom: clamp(112px, 18vh, 168px);
   overflow-wrap: anywhere;
   hyphens: auto;
   text-rendering: optimizeLegibility;
@@ -82,15 +83,15 @@ html.reader-theme-light body {
 }
 
 html.reader-theme-sepia body {
-  background: #f8f0df;
-  color: #211b14;
+  background: #211a13;
+  color: #f2dfc3;
 }
 
 .reader-article {
   box-sizing: border-box;
   margin: 0 auto;
   max-width: 740px;
-  padding: 28px 20px 44px;
+  padding: 28px 20px clamp(118px, 20vh, 180px);
   width: 100%;
 }
 
@@ -121,7 +122,8 @@ h6 {
   font-weight: 600;
   line-height: 1.24;
   margin: 1.55em 0 0.65em;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 html.reader-theme-dark h1,
@@ -148,19 +150,19 @@ html.reader-theme-sepia h3,
 html.reader-theme-sepia h4,
 html.reader-theme-sepia h5,
 html.reader-theme-sepia h6 {
-  color: #18120c;
+  color: #ffe8c6;
 }
 
 h1 {
-  font-size: 1.72em;
+  font-size: clamp(1.34rem, 1.06rem + 1.1vw, 1.92rem);
 }
 
 h2 {
-  font-size: 1.42em;
+  font-size: clamp(1.18rem, 1.02rem + 0.8vw, 1.58rem);
 }
 
 h3 {
-  font-size: 1.22em;
+  font-size: clamp(1.08rem, 0.98rem + 0.55vw, 1.34rem);
 }
 
 h4,
@@ -185,7 +187,7 @@ html.reader-theme-dark a {
 }
 
 html.reader-theme-sepia a {
-  color: #564bd6;
+  color: #e0b36f;
 }
 
 blockquote {
@@ -238,8 +240,8 @@ html.reader-theme-dark code {
 
 html.reader-theme-sepia pre,
 html.reader-theme-sepia code {
-  background: #efe1ca;
-  color: #241d16;
+  background: #33281d;
+  color: #f4e3c9;
 }
 
 code {
@@ -303,18 +305,18 @@ html.reader-theme-dark .reader-empty-section {
 }
 
 html.reader-theme-sepia th {
-  background: #eddfc7;
+  background: #33281d;
 }
 
 html.reader-theme-sepia th,
 html.reader-theme-sepia td,
 html.reader-theme-sepia .reader-empty-section {
-  border-color: #d8c6aa;
+  border-color: #5a4732;
 }
 
 html.reader-theme-sepia .reader-empty-section {
-  background: #efe1ca;
-  color: #514535;
+  background: #2d241a;
+  color: #d0b994;
 }
 
 .reader-empty-section {
@@ -336,7 +338,7 @@ html.reader-theme-sepia .reader-empty-section {
 
 @media (max-width: 520px) {
   .reader-article {
-    padding: 22px 17px 38px;
+    padding: 22px 17px clamp(122px, 20vh, 176px);
   }
 
   html:not(.reader-line-compact):not(.reader-line-spacious) body {

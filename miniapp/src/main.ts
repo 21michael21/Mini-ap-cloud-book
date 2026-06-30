@@ -1146,7 +1146,7 @@ function renderReaderSettingsSheet(sheet: Extract<SheetState, { kind: "readerSet
                 <span>Zoom</span>
                 <div class="reader-stepper">
                   <button class="secondary reader-zoom-button" id="readerZoomOut" type="button" aria-label="Zoom out">&minus;</button>
-                  <b>${Math.round(pdfZoom * 100)}%</b>
+                  <b id="readerPdfZoomValue">${Math.round(pdfZoom * 100)}%</b>
                   <button class="secondary reader-zoom-button" id="readerZoomIn" type="button" aria-label="Zoom in">+</button>
                 </div>
               </div>
@@ -1158,7 +1158,7 @@ function renderReaderSettingsSheet(sheet: Extract<SheetState, { kind: "readerSet
                 <span>Font size</span>
                 <div class="reader-stepper">
                   <button class="secondary reader-font-button" id="readerFontDown" type="button" aria-label="Decrease font size">A-</button>
-                  <b>${readerFontSizePx}px</b>
+                  <b id="readerFontSizeValue">${readerFontSizePx}px</b>
                   <button class="secondary reader-font-button" id="readerFontUp" type="button" aria-label="Increase font size">A+</button>
                 </div>
               </div>
@@ -1201,11 +1201,11 @@ function renderReaderSettingsSheet(sheet: Extract<SheetState, { kind: "readerSet
 }
 
 function renderReaderThemeButton(label: string, theme: ReaderContentTheme): string {
-  return `<button class="sort-button ${readerTheme === theme ? "active" : ""}" type="button" data-reader-theme="${theme}">${label}</button>`;
+  return `<button class="sort-button ${readerTheme === theme ? "active" : ""}" type="button" data-reader-theme="${theme}" aria-pressed="${readerTheme === theme ? "true" : "false"}">${label}</button>`;
 }
 
 function renderReaderSegmentButton(label: string, group: string, value: string, activeValue: string): string {
-  return `<button class="sort-button ${activeValue === value ? "active" : ""}" type="button" data-${group}="${value}">${label}</button>`;
+  return `<button class="sort-button ${activeValue === value ? "active" : ""}" type="button" data-${group}="${value}" aria-pressed="${activeValue === value ? "true" : "false"}">${label}</button>`;
 }
 
 function renderFolderManageSheet(sheet: Extract<SheetState, { kind: "folderManage" }>): string {
@@ -1564,11 +1564,9 @@ function bindSheetControls() {
   if (activeSheet.kind === "readerSettings") {
     document.querySelector("#readerFontDown")?.addEventListener("click", () => {
       changeReaderFontSize(-1);
-      updateActiveSheet();
     });
     document.querySelector("#readerFontUp")?.addEventListener("click", () => {
       changeReaderFontSize(1);
-      updateActiveSheet();
     });
     document.querySelector("#readerZoomOut")?.addEventListener("click", () => void changePdfZoom(-1));
     document.querySelector("#readerZoomIn")?.addEventListener("click", () => void changePdfZoom(1));
@@ -2190,7 +2188,7 @@ function setReaderTheme(theme: ReaderContentTheme) {
   window.localStorage.setItem("telegram-library-reader-theme", readerTheme);
   applyReaderTheme();
   activeTextReader?.setTheme(readerTheme);
-  updateActiveSheet();
+  scheduleReaderSettingsSync();
 }
 
 function applyReaderTheme() {
@@ -2227,21 +2225,21 @@ function changeReaderFontSize(delta: number) {
   readerFontSizePx = clamp(readerFontSizePx + delta, 15, 26);
   window.localStorage.setItem("telegram-library-reader-font-size", String(readerFontSizePx));
   activeTextReader?.setFontSize(readerFontSizePx);
-  updateReaderFontButtons();
+  scheduleReaderSettingsSync();
 }
 
 function setReaderLineSpacing(lineSpacing: ReaderLineSpacing) {
   readerLineSpacing = lineSpacing;
   window.localStorage.setItem("telegram-library-reader-line-spacing", readerLineSpacing);
   activeTextReader?.setLineSpacing(readerLineSpacing);
-  updateActiveSheet();
+  scheduleReaderSettingsSync();
 }
 
 function setReaderMargin(margin: ReaderMargin) {
   readerMargin = margin;
   window.localStorage.setItem("telegram-library-reader-margin", readerMargin);
   activeTextReader?.setMargin(readerMargin);
-  updateActiveSheet();
+  scheduleReaderSettingsSync();
 }
 
 function resetReaderTextSettings() {
@@ -2258,8 +2256,7 @@ function resetReaderTextSettings() {
   activeTextReader?.setLineSpacing(readerLineSpacing);
   activeTextReader?.setMargin(readerMargin);
   activeTextReader?.setTheme(readerTheme);
-  updateReaderFontButtons();
-  updateActiveSheet();
+  scheduleReaderSettingsSync();
 }
 
 async function changePdfZoom(direction: -1 | 1) {
@@ -2269,8 +2266,7 @@ async function changePdfZoom(direction: -1 | 1) {
   else await reader.zoomIn();
   pdfZoom = reader.getZoom();
   window.localStorage.setItem("telegram-library-pdf-zoom", String(pdfZoom));
-  updatePdfZoomButtons(pdfZoom);
-  updateActiveSheet();
+  scheduleReaderSettingsSync();
 }
 
 async function resetPdfZoom() {
@@ -2279,8 +2275,35 @@ async function resetPdfZoom() {
   pdfZoom = 1;
   window.localStorage.setItem("telegram-library-pdf-zoom", String(pdfZoom));
   await reader.setZoom(pdfZoom);
+  scheduleReaderSettingsSync();
+}
+
+function scheduleReaderSettingsSync() {
+  window.requestAnimationFrame(() => {
+    syncReaderSettingsSheet();
+  });
+}
+
+function syncReaderSettingsSheet() {
+  if (activeSheet?.kind !== "readerSettings") return;
+  const fontValue = document.querySelector<HTMLElement>("#readerFontSizeValue");
+  if (fontValue) fontValue.textContent = `${readerFontSizePx}px`;
+  const zoomValue = document.querySelector<HTMLElement>("#readerPdfZoomValue");
+  if (zoomValue) zoomValue.textContent = `${Math.round(pdfZoom * 100)}%`;
+  syncPressedButtons("[data-reader-line]", readerLineSpacing);
+  syncPressedButtons("[data-reader-margin]", readerMargin);
+  syncPressedButtons("[data-reader-theme]", readerTheme);
+  updateReaderFontButtons();
   updatePdfZoomButtons(pdfZoom);
-  updateActiveSheet();
+}
+
+function syncPressedButtons(selector: string, activeValue: string) {
+  document.querySelectorAll<HTMLButtonElement>(selector).forEach((button) => {
+    const value = button.dataset.readerLine ?? button.dataset.readerMargin ?? button.dataset.readerTheme;
+    const isActive = value === activeValue;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
 }
 
 function updateReaderFontButtons() {

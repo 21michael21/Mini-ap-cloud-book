@@ -1669,6 +1669,7 @@ mark {
 }
 
 .reader {
+  --reader-bottom-clearance: calc(112px + env(safe-area-inset-bottom, 0px));
   height: 100vh;
   height: 100dvh;
   padding: 0;
@@ -1697,23 +1698,24 @@ body.reader-light .reader {
 }
 
 body.reader-sepia .reader {
-  --surface: #f8f0df;
-  --surface-2: #efe1ca;
-  --surface-3: #fff8ec;
-  --text: #211b14;
-  --muted: #625443;
-  --line: #d8c6aa;
-  --accent: #6d4fbf;
-  --accent-soft: rgba(109, 79, 191, 0.14);
-  --button-bg: #efe1ca;
-  --button-bg-pressed: #e4d2b5;
-  --button-text: #211b14;
-  --button-muted-text: #5a4d3f;
-  --button-border: #d8c6aa;
-  --button-disabled-bg: #eadcc4;
-  --button-disabled-text: #756957;
-  --button-ghost-bg: #fff8ec;
-  --button-ghost-text: #211b14;
+  --surface: #211a13;
+  --surface-2: #2d241a;
+  --surface-3: #372c20;
+  --text: #f2dfc3;
+  --muted: #c2ad8e;
+  --line: #5a4732;
+  --accent: #d6a15f;
+  --accent-border: #d6a15f;
+  --accent-soft: rgba(214, 161, 95, 0.2);
+  --button-bg: #33281d;
+  --button-bg-pressed: #463521;
+  --button-text: #f4e3c9;
+  --button-muted-text: #d0b994;
+  --button-border: #5a4732;
+  --button-disabled-bg: #251d15;
+  --button-disabled-text: #8e7a5f;
+  --button-ghost-bg: #261f17;
+  --button-ghost-text: #f4e3c9;
 }
 
 body:not(.reader-light):not(.reader-sepia) .reader {
@@ -1840,36 +1842,51 @@ body:not(.reader-light):not(.reader-sepia) .reader {
   top: calc(env(safe-area-inset-top, 0px) + 6px);
   right: 8px;
   left: 8px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 48px 44px;
   min-height: 54px;
   padding: 7px;
-  border-radius: 16px;
-  background: var(--surface);
+  border-color: color-mix(in srgb, var(--button-border) 72%, transparent);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
   backdrop-filter: blur(18px);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.14);
 }
 
 .reader-v2 .reader-toolbar .secondary {
+  width: 44px;
   min-width: 44px;
+  max-width: 44px;
+  height: 44px;
   min-height: 44px;
+  padding: 0;
   border-radius: 14px;
 }
 
 .reader-v2 .reader-title-wrap {
+  overflow: hidden;
   justify-items: start;
+  min-width: 0;
 }
 
 .reader-v2 .reader-title-wrap strong {
+  display: block;
+  width: 100%;
+  max-width: 100%;
   font-size: 13px;
+  letter-spacing: 0;
 }
 
 .reader-v2 .reader-aa-button {
+  width: 48px;
   min-width: 48px;
+  max-width: 48px;
   font-size: 16px;
   font-weight: 700;
 }
 
 .reader-v2 .reader-mark-button {
   gap: 5px;
-  padding: 0 10px;
 }
 
 .reader-v2 .reader-mark-button span {
@@ -1880,16 +1897,17 @@ body:not(.reader-light):not(.reader-sepia) .reader {
   width: 100%;
   height: 100vh;
   height: 100dvh;
+  box-sizing: border-box;
   overflow: auto;
   overscroll-behavior: contain;
   padding-top: calc(env(safe-area-inset-top, 0px) + 72px);
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 104px);
+  padding-bottom: var(--reader-bottom-clearance);
   -webkit-overflow-scrolling: touch;
 }
 
 .reader-v2 .reader-stage {
   padding-top: calc(env(safe-area-inset-top, 0px) + 66px);
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 96px);
+  padding-bottom: var(--reader-bottom-clearance);
 }
 
 .reader-loading,
@@ -1926,8 +1944,9 @@ foliate-view {
 .book-frame {
   display: block;
   width: 100%;
-  height: calc(100vh - 176px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-  height: calc(100dvh - 176px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  height: calc(100vh - 72px - var(--reader-bottom-clearance));
+  height: calc(100dvh - 72px - var(--reader-bottom-clearance));
+  min-height: 260px;
   border: 0;
   background: #fff;
 }
@@ -1957,8 +1976,10 @@ foliate-view {
   min-height: 68px;
   padding: 8px;
   border-radius: 18px;
-  background: var(--surface);
+  border-color: color-mix(in srgb, var(--button-border) 78%, transparent);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
   backdrop-filter: blur(18px);
+  box-shadow: 0 -10px 26px rgba(0, 0, 0, 0.14);
 }
 
 .reader-bottom-progress--v2.reader-bottom-progress--pdf {
@@ -2053,6 +2074,9 @@ foliate-view {
 .reader-settings-sheet {
   display: grid;
   gap: 14px;
+  max-height: min(78vh, 620px);
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .reader-setting-row {
@@ -2101,7 +2125,31 @@ foliate-view {
 }
 
 .reader-settings-sheet .sort-button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #111520;
+}
+
+body.reader-light .reader-settings-sheet .sort-button.active {
   color: #ffffff;
+}
+
+body.reader-sepia .reader-settings-sheet .sort-button.active {
+  color: #1a120a;
+}
+
+.reader-settings-sheet .secondary,
+.reader-settings-sheet .ghost-button,
+.reader-settings-sheet .sort-button {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.reader-settings-sheet .sort-button.active:active {
+  transform: scale(0.98);
 }
 
 .pdf-page-shell {
@@ -2109,7 +2157,7 @@ foliate-view {
   justify-content: center;
   min-width: 100%;
   width: max-content;
-  padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  padding-bottom: var(--reader-bottom-clearance);
 }
 
 .pdf-canvas {

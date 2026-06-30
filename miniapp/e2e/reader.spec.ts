@@ -154,6 +154,82 @@ test.describe("reader e2e", () => {
     await expect(page.locator("#readerBottomLabel")).toContainText(/Section 2\/3/);
   });
 
+  test("Reader UI v2 keeps mobile chrome readable and stable", async ({ page }, testInfo) => {
+    test.skip(!isReaderUiV2, "Reader UI v2 visual chrome test only runs for v2.");
+    test.skip(experimentFlags.textReaderEngine === "foliate-view", "Iframe spacing checks target the stable custom reader.");
+    await page.addInitScript(() => {
+      window.localStorage.setItem("telegram-library-reader-theme", "dark");
+      window.localStorage.setItem("telegram-library-reader-font-size", "18");
+      window.localStorage.setItem("telegram-library-reader-line-spacing", "normal");
+      window.localStorage.setItem("telegram-library-reader-margin", "normal");
+      window.localStorage.setItem("telegram-library-reader-hint-seen", "1");
+    });
+    await resetBookPosition("multi_section.epub", JSON.stringify({ type: "text", sectionIndex: 0, scrollRatio: 0 }), 0);
+    await openBook(page, books.epub);
+    await page.locator(".reader-title-wrap strong").evaluate((element) => {
+      element.textContent =
+        "ОченьдлинноерусскоеназваниекнигипроархитектурупродуктаимобильныйчитательбезналоженийОченьдлинноерусскоеназвание";
+    });
+    await expect(page.locator("#readerSettingsButton")).toBeVisible();
+    await expect(page.locator("#readerMark")).toBeVisible();
+    const titleLayout = await page.locator("#readerToolbar").evaluate((toolbar) => {
+      const title = toolbar.querySelector<HTMLElement>(".reader-title-wrap");
+      const titleText = toolbar.querySelector<HTMLElement>(".reader-title-wrap strong");
+      const settings = toolbar.querySelector<HTMLElement>("#readerSettingsButton");
+      const mark = toolbar.querySelector<HTMLElement>("#readerMark");
+      if (!title || !titleText || !settings || !mark) return { ok: false, ellipsis: false };
+      const titleBox = title.getBoundingClientRect();
+      const settingsBox = settings.getBoundingClientRect();
+      const markBox = mark.getBoundingClientRect();
+      const style = getComputedStyle(titleText);
+      return {
+        ok: titleBox.right <= settingsBox.left - 1 && settingsBox.right <= markBox.left - 1,
+        ellipsis:
+          style.overflow === "hidden" &&
+          style.textOverflow === "ellipsis" &&
+          style.whiteSpace === "nowrap",
+      };
+    });
+    expect(titleLayout.ok).toBe(true);
+    expect(titleLayout.ellipsis).toBe(true);
+    await maybeScreenshot(page, testInfo, "reader-dark-long-title");
+
+    const frame = await waitForBookFrame(page);
+    await expectVisibleText(frame, 400);
+    const bottomPadding = await frame.locator("body").evaluate((body) => Number.parseFloat(getComputedStyle(body).paddingBottom));
+    expect(bottomPadding).toBeGreaterThan(90);
+    await scrollBookFrame(frame, 0.98);
+    await expect(page.locator("#readerBottomProgress")).toBeVisible();
+    await maybeScreenshot(page, testInfo, "reader-bottom-progress-no-overlap");
+
+    await page.locator("#readerSettingsButton").click();
+    const sheet = page.locator(".reader-settings-sheet");
+    await expect(sheet).toBeVisible();
+    await sheet.evaluate((element) => {
+      element.setAttribute("data-stability-token", "same-node");
+      element.scrollTop = 12;
+    });
+    await page.locator('[data-reader-theme="sepia"]').click();
+    await expect(sheet).toHaveAttribute("data-stability-token", "same-node");
+    await expect(page.locator('[data-reader-theme="sepia"]')).toHaveAttribute("aria-pressed", "true");
+    await expectReadableContrast(page.locator('[data-reader-theme="sepia"]'));
+    await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "reader-sepia-settings");
+
+    await page.locator("#readerFontUp").click();
+    await expect(sheet).toHaveAttribute("data-stability-token", "same-node");
+    await expect(page.locator("#readerFontSizeValue")).toContainText("19px");
+    await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "reader-settings-after-font-change");
+
+    await page.locator('[data-reader-line="spacious"]').click();
+    await page.locator('[data-reader-margin="wide"]').click();
+    await page.locator('[data-reader-theme="dark"]').click();
+    await expect(sheet).toHaveAttribute("data-stability-token", "same-node");
+    await expect(page.locator('[data-reader-line="spacious"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator('[data-reader-margin="wide"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator('[data-reader-theme="dark"]')).toHaveAttribute("aria-pressed", "true");
+    await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "reader-settings-after-theme-change");
+  });
+
   test("FB2 opens, keeps controls readable, and restores section position", async ({ page }) => {
     test.skip(experimentFlags.textReaderEngine === "foliate-view", "Strict restore gate targets the stable custom reader.");
     await resetBookPosition("long_text.fb2", JSON.stringify({ type: "text", sectionIndex: 0, scrollRatio: 0 }), 0);
@@ -676,6 +752,30 @@ async function expectReadableButton(locator: ReturnType<Page["locator"]>): Promi
     return style.color !== "rgba(0, 0, 0, 0)" && style.opacity !== "0" && box.width > 0 && box.height > 0;
   });
   expect(readable).toBe(true);
+}
+
+async function expectReadableContrast(locator: ReturnType<Page["locator"]>, minRatio = 4.5): Promise<void> {
+  await expect(locator).toBeVisible();
+  const ratio = await locator.evaluate((element) => {
+    const parseRgb = (value: string): [number, number, number] => {
+      const match = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (!match) return [0, 0, 0];
+      return [Number(match[1]), Number(match[2]), Number(match[3])];
+    };
+    const linear = (channel: number) => {
+      const value = channel / 255;
+      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    };
+    const luminance = ([red, green, blue]: [number, number, number]) =>
+      0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue);
+    const style = getComputedStyle(element);
+    const foreground = luminance(parseRgb(style.color));
+    const background = luminance(parseRgb(style.backgroundColor));
+    const lighter = Math.max(foreground, background);
+    const darker = Math.min(foreground, background);
+    return (lighter + 0.05) / (darker + 0.05);
+  });
+  expect(ratio).toBeGreaterThanOrEqual(minRatio);
 }
 
 async function canvasCssWidth(page: Page): Promise<number> {
