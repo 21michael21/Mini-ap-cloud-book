@@ -30,6 +30,7 @@ from backend.app.schemas import (
     NoteUpdate,
     ReadingPositionIn,
     ReadingPositionOut,
+    ReorderIn,
 )
 from backend.app.services import (
     cache_path,
@@ -110,6 +111,7 @@ def serialize_book(book: Book) -> BookOut:
         size_bytes=book.size_bytes,
         too_large=book.too_large,
         possible_duplicate=book.possible_duplicate,
+        sort_order=book.sort_order,
         folder_id=book.folder_id,
         added_at=book.added_at,
         last_opened_at=book.last_opened_at,
@@ -119,6 +121,40 @@ def serialize_book(book: Book) -> BookOut:
 
 def books_query(user: User) -> Select[tuple[Book]]:
     return select(Book).where(Book.user_id == user.id)
+
+
+def normalize_book_sort_order(db: Session, user: User) -> None:
+    books = db.scalars(
+        books_query(user).order_by(Book.sort_order.asc(), Book.added_at.desc(), Book.id.desc())
+    ).all()
+    for index, book in enumerate(books, start=1):
+        desired = index * 10
+        if book.sort_order != desired:
+            book.sort_order = desired
+    db.flush()
+
+
+def scoped_books_for_reorder(db: Session, user: User, payload: ReorderIn) -> list[Book]:
+    query = books_query(user)
+    if payload.inbox:
+        if payload.folder_id is not None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Choose inbox or folder_id")
+        query = query.where(Book.folder_id.is_(None))
+    elif payload.folder_id is not None:
+        owned_folder_or_404(db, user, payload.folder_id)
+        query = query.where(Book.folder_id == payload.folder_id)
+    return db.scalars(query.order_by(Book.sort_order.asc(), Book.added_at.desc(), Book.id.desc())).all()
+
+
+def normalize_folder_sort_order(db: Session, user: User) -> None:
+    folders = db.scalars(
+        select(Folder).where(Folder.user_id == user.id).order_by(Folder.sort_order.asc(), Folder.created_at.asc(), Folder.id.asc())
+    ).all()
+    for index, folder in enumerate(folders, start=1):
+        desired = index * 10
+        if folder.sort_order != desired:
+            folder.sort_order = desired
+    db.flush()
 
 
 def version_payload(settings: Settings, service: str = "backend") -> dict[str, str]:
@@ -172,6 +208,7 @@ def list_books(
     folder_id: int | None = None,
     inbox: bool = False,
     q: str | None = None,
+    sort: str = "recent_added",
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> list[BookOut]:
@@ -185,7 +222,15 @@ def list_books(
         like = f"%{q.strip()}%"
         query = query.where(or_(Book.title.ilike(like), Book.author.ilike(like)))
         log_event(db, user.id, "search_used", meta={"q": q.strip()})
-    books = db.scalars(query.order_by(Book.added_at.desc())).all()
+    if sort == "manual":
+        query = query.order_by(Book.sort_order.asc(), Book.added_at.desc(), Book.id.desc())
+    elif sort == "recent_opened":
+        query = query.order_by(Book.last_opened_at.desc().nullslast(), Book.added_at.desc(), Book.id.desc())
+    elif sort == "recent_added":
+        query = query.order_by(Book.added_at.desc(), Book.id.desc())
+    else:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported sort")
+    books = db.scalars(query).all()
     db.commit()
     return [serialize_book(book) for book in books]
 
@@ -262,6 +307,32 @@ def move_book(
     return serialize_book(book)
 
 
+@app.patch("/api/books/{book_id}/reorder", response_model=BookOut)
+def reorder_book(
+    book_id: int,
+    payload: ReorderIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> BookOut:
+    book = owned_book_or_404(db, user, book_id)
+    normalize_book_sort_order(db, user)
+    scoped_books = scoped_books_for_reorder(db, user, payload)
+    index = next((idx for idx, item in enumerate(scoped_books) if item.id == book.id), None)
+    if index is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found in this view")
+    target_index = index - 1 if payload.direction == "up" else index + 1
+    if target_index < 0 or target_index >= len(scoped_books):
+        db.commit()
+        db.refresh(book)
+        return serialize_book(book)
+    target = scoped_books[target_index]
+    book.sort_order, target.sort_order = target.sort_order, book.sort_order
+    log_event(db, user.id, "book_reordered", book.id, {"direction": payload.direction})
+    db.commit()
+    db.refresh(book)
+    return serialize_book(book)
+
+
 @app.get("/api/books/{book_id}/file")
 async def get_book_file(
     book_id: int,
@@ -319,6 +390,33 @@ def rename_folder(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Folder already exists") from exc
+    db.refresh(folder)
+    return folder
+
+
+@app.patch("/api/folders/{folder_id}/reorder", response_model=FolderOut)
+def reorder_folder(
+    folder_id: int,
+    payload: ReorderIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> Folder:
+    folder = owned_folder_or_404(db, user, folder_id)
+    normalize_folder_sort_order(db, user)
+    folders = db.scalars(
+        select(Folder).where(Folder.user_id == user.id).order_by(Folder.sort_order.asc(), Folder.created_at.asc(), Folder.id.asc())
+    ).all()
+    index = next((idx for idx, item in enumerate(folders) if item.id == folder.id), None)
+    if index is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
+    target_index = index - 1 if payload.direction == "up" else index + 1
+    if target_index < 0 or target_index >= len(folders):
+        db.commit()
+        db.refresh(folder)
+        return folder
+    target = folders[target_index]
+    folder.sort_order, target.sort_order = target.sort_order, folder.sort_order
+    db.commit()
     db.refresh(folder)
     return folder
 

@@ -15,6 +15,12 @@ This repo intentionally implements only the v1 MVP:
 
 No catalogs, scraping, piracy search, AI, Celery, Redis, RabbitMQ, React, or RAG.
 
+## Library Management MVP
+
+Books can be renamed, assigned an author, moved to folders, removed from the local library, and manually reordered from the Mini App actions sheet. Removing a book deletes only the local library record and cached copy; it does not delete the original Telegram file.
+
+Manual book order is intentionally simple for the MVP: `books.sort_order` is global per user and then applied inside All, Inbox, and folder views. This means a manual move in a folder can affect the relative order seen in All, but it avoids a separate per-folder ordering table while alpha testing the workflow.
+
 ## Structure
 
 ```text

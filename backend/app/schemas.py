@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -30,6 +31,7 @@ class BookOut(BaseModel):
     size_bytes: int
     too_large: bool
     possible_duplicate: bool = False
+    sort_order: int = 0
     folder_id: int | None
     added_at: datetime
     last_opened_at: datetime | None
@@ -38,6 +40,12 @@ class BookOut(BaseModel):
 
 class MoveBookIn(BaseModel):
     folder_id: int | None = None
+
+
+class ReorderIn(BaseModel):
+    direction: Literal["up", "down"]
+    folder_id: int | None = None
+    inbox: bool = False
 
 
 class BookUpdate(BaseModel):

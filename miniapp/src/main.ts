@@ -19,6 +19,7 @@ type Book = {
   size_bytes: number;
   too_large: boolean;
   possible_duplicate: boolean;
+  sort_order: number;
   folder_id: number | null;
   progress_percent: number;
 };
@@ -47,17 +48,21 @@ type Home = {
 
 type View = "home" | "library" | "reader";
 type LibraryScope = "inbox" | "all" | number;
+type LibrarySort = "manual" | "recent_opened" | "recent_added";
 type SheetState =
   | { kind: "actions"; book: Book; error: string | null }
   | { kind: "move"; book: Book; targetFolderId: number | null }
   | { kind: "edit"; book: Book; title: string; author: string; error: string | null }
   | { kind: "remove"; book: Book; error: string | null }
   | { kind: "folder"; name: string; error: string | null }
+  | { kind: "folderManage"; error: string | null }
+  | { kind: "folderEdit"; folder: Folder; name: string; error: string | null }
+  | { kind: "folderRemove"; folder: Folder; error: string | null }
   | { kind: "note"; book: Book; locator: string; percent: number; noteText: string; error: string | null }
   | { kind: "notes"; book: Book; notes: Note[]; isLoading: boolean; error: string | null }
   | null;
 type AppTheme = "day" | "night";
-type PendingAction = "folder" | "move" | "edit" | "remove" | "note" | null;
+type PendingAction = "folder" | "folderEdit" | "folderRemove" | "move" | "edit" | "remove" | "reorder" | "note" | null;
 type ToastKind = "info" | "success" | "error";
 
 class ApiError extends Error {
@@ -81,6 +86,7 @@ let booksState: Book[] = [];
 let foldersState: Folder[] = [];
 let selectedFolderId: LibraryScope = "all";
 let searchQuery = "";
+let librarySort: LibrarySort = readLibrarySort();
 let activeBook: Book | null = null;
 let activeSheet: SheetState = null;
 let isHomeLoading = false;
@@ -165,7 +171,10 @@ async function loadBooks(scope: LibraryScope = selectedFolderId) {
   errorMessage = null;
   render();
   try {
-    const [allBooks, folders] = await Promise.all([api<Book[]>("/api/books"), api<Folder[]>("/api/folders")]);
+    const [allBooks, folders] = await Promise.all([
+      api<Book[]>(`/api/books?sort=${encodeURIComponent(librarySort)}`),
+      api<Folder[]>("/api/folders"),
+    ]);
     allBooksState = allBooks;
     foldersState = folders;
     booksState = filterBooks(allBooksState);
@@ -213,6 +222,86 @@ async function submitFolder(name: string) {
   }
 }
 
+async function updateFolderName(folder: Folder, name: string) {
+  if (pendingAction) return;
+  if (!name.trim()) {
+    activeSheet = { kind: "folderEdit", folder, name, error: "Folder name must not be empty." };
+    render();
+    return;
+  }
+  pendingAction = "folderEdit";
+  render();
+  try {
+    const updated = await api<Folder>(`/api/folders/${folder.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    foldersState = foldersState.map((item) => (item.id === updated.id ? updated : item));
+    activeSheet = { kind: "folderManage", error: null };
+    hapticNotification("success");
+    showToast("Folder renamed", "success");
+    render();
+  } catch (error) {
+    hapticNotification("error");
+    showToast("Could not rename folder", "error");
+    pendingAction = null;
+    activeSheet = { kind: "folderEdit", folder, name, error: readableError(error) };
+    render();
+  } finally {
+    pendingAction = null;
+  }
+}
+
+async function removeFolder(folder: Folder) {
+  if (pendingAction) return;
+  pendingAction = "folderRemove";
+  render();
+  try {
+    await api<void>(`/api/folders/${folder.id}`, { method: "DELETE" });
+    if (selectedFolderId === folder.id) selectedFolderId = "all";
+    foldersState = foldersState.filter((item) => item.id !== folder.id);
+    allBooksState = allBooksState.map((book) => (book.folder_id === folder.id ? { ...book, folder_id: null } : book));
+    booksState = filterBooks(allBooksState);
+    activeSheet = { kind: "folderManage", error: null };
+    hapticNotification("success");
+    showToast("Folder deleted", "success");
+    render();
+  } catch (error) {
+    hapticNotification("error");
+    showToast("Could not delete folder", "error");
+    pendingAction = null;
+    activeSheet = { kind: "folderRemove", folder, error: readableError(error) };
+    render();
+  } finally {
+    pendingAction = null;
+  }
+}
+
+async function reorderFolder(folder: Folder, direction: "up" | "down") {
+  if (pendingAction) return;
+  pendingAction = "reorder";
+  render();
+  try {
+    await api<Folder>(`/api/folders/${folder.id}/reorder`, {
+      method: "PATCH",
+      body: JSON.stringify({ direction }),
+    });
+    foldersState = await api<Folder[]>("/api/folders");
+    activeSheet = { kind: "folderManage", error: null };
+    hapticSelection();
+    showToast("Folder moved", "success");
+    render();
+  } catch (error) {
+    hapticNotification("error");
+    showToast("Could not move folder", "error");
+    pendingAction = null;
+    activeSheet = { kind: "folderManage", error: readableError(error) };
+    render();
+  } finally {
+    pendingAction = null;
+  }
+}
+
 async function moveBookToFolder(book: Book, folderId: number | null) {
   if (pendingAction) return;
   pendingAction = "move";
@@ -233,6 +322,41 @@ async function moveBookToFolder(book: Book, folderId: number | null) {
     pendingAction = null;
     if (error instanceof ApiError && error.status === 404) {
       activeSheet = { kind: "actions", book, error: "This item was not found. Refreshing your library." };
+      render();
+      window.setTimeout(() => void refreshCurrentView(), 700);
+      return;
+    }
+    activeSheet = { kind: "actions", book, error: readableError(error) };
+    render();
+  } finally {
+    pendingAction = null;
+  }
+}
+
+async function reorderBook(book: Book, direction: "up" | "down") {
+  if (pendingAction) return;
+  pendingAction = "reorder";
+  librarySort = "manual";
+  writeLibrarySort();
+  render();
+  try {
+    await api<Book>(`/api/books/${book.id}/reorder`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        direction,
+        ...currentBookScopePayload(),
+      }),
+    });
+    activeSheet = null;
+    hapticSelection();
+    showToast(direction === "up" ? "Moved up" : "Moved down", "success");
+    await loadBooks(selectedFolderId);
+  } catch (error) {
+    hapticNotification("error");
+    showToast("Could not reorder book", "error");
+    pendingAction = null;
+    if (error instanceof ApiError && error.status === 404) {
+      activeSheet = { kind: "actions", book, error: "This item was not found in the current view. Refreshing your library." };
       render();
       window.setTimeout(() => void refreshCurrentView(), 700);
       return;
@@ -402,6 +526,21 @@ function filterBooks(books: Book[]): Book[] {
   });
 }
 
+function bookOrderState(book: Book): { canMoveUp: boolean; canMoveDown: boolean } {
+  const visibleBooks = filterBooks(allBooksState);
+  const index = visibleBooks.findIndex((item) => item.id === book.id);
+  return {
+    canMoveUp: index > 0,
+    canMoveDown: index >= 0 && index < visibleBooks.length - 1,
+  };
+}
+
+function currentBookScopePayload(): { inbox?: boolean; folder_id?: number } {
+  if (selectedFolderId === "inbox") return { inbox: true };
+  if (typeof selectedFolderId === "number") return { folder_id: selectedFolderId };
+  return {};
+}
+
 function render() {
   if (view === "reader" && activeBook) {
     renderReader(activeBook);
@@ -542,6 +681,7 @@ function renderLibrary(): string {
   return `
     ${renderLibraryTabs()}
     ${renderSearchBox(hasQuery)}
+    ${renderSortSelector()}
     ${
       noBooksAtAll
         ? renderLibraryEmpty()
@@ -588,7 +728,7 @@ function renderLibraryTabs(): string {
     </div>
     ${
       typeof selectedFolderId === "number" || selectedFolderId === "all"
-        ? `<div class="folder-strip">${renderFolderChips(true)}</div>`
+        ? `<div class="folder-strip">${renderFolderChips(true)}<button class="folder-manage-button" type="button" id="manageFolders">${icon("more")}<span>Manage folders</span></button></div>`
         : ""
     }
   `;
@@ -611,6 +751,20 @@ function renderSearchBox(focused: boolean): string {
     </label>
     ${focused ? `<div class="result-count">${booksState.length} ${booksState.length === 1 ? "result" : "results"}</div>` : ""}
   `;
+}
+
+function renderSortSelector(): string {
+  return `
+    <div class="sort-row" role="group" aria-label="Library sort">
+      ${renderSortButton("Manual", "manual")}
+      ${renderSortButton("Recently opened", "recent_opened")}
+      ${renderSortButton("Recently added", "recent_added")}
+    </div>
+  `;
+}
+
+function renderSortButton(label: string, value: LibrarySort): string {
+  return `<button class="sort-button ${librarySort === value ? "active" : ""}" type="button" data-sort="${value}">${label}</button>`;
 }
 
 function renderLibraryEmpty(): string {
@@ -726,6 +880,9 @@ function renderNav(): string {
 function renderSheet(sheet: SheetState): string {
   if (!sheet) return "";
   if (sheet.kind === "folder") return renderFolderSheet(sheet);
+  if (sheet.kind === "folderManage") return renderFolderManageSheet(sheet);
+  if (sheet.kind === "folderEdit") return renderFolderEditSheet(sheet);
+  if (sheet.kind === "folderRemove") return renderFolderRemoveSheet(sheet);
   if (sheet.kind === "actions") return renderActionsSheet(sheet);
   if (sheet.kind === "edit") return renderEditBookSheet(sheet);
   if (sheet.kind === "remove") return renderRemoveBookSheet(sheet);
@@ -782,6 +939,7 @@ function renderSheetBook(book: Book): string {
 }
 
 function renderActionsSheet(sheet: Extract<SheetState, { kind: "actions" }>): string {
+  const orderState = bookOrderState(sheet.book);
   return `
     <div class="sheet-layer" id="sheetScrim">
       <section class="bottom-sheet sheet-up" aria-label="Book actions">
@@ -790,9 +948,10 @@ function renderActionsSheet(sheet: Extract<SheetState, { kind: "actions" }>): st
         ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
         <div class="sheet-actions">
           <button class="sheet-action" type="button" id="sheetRead">${icon("bookOpen")}<span>Read</span></button>
-          <button class="sheet-action" type="button" id="sheetNotes">${icon("bookmark")}<span>Notes</span></button>
-          <button class="sheet-action" type="button" id="sheetMove">${icon("folderPlus")}<span>Move to folder</span></button>
           <button class="sheet-action" type="button" id="sheetEdit" aria-label="Rename. Edit title and author">${icon("edit")}<span class="sheet-action-copy"><strong>Rename</strong><small>Edit title and author</small></span></button>
+          <button class="sheet-action" type="button" id="sheetMove">${icon("folderPlus")}<span>Move to folder</span></button>
+          <button class="sheet-action" type="button" id="sheetMoveUp" ${orderState.canMoveUp ? "" : "disabled"}>${icon("arrowUp")}<span>Move up</span></button>
+          <button class="sheet-action" type="button" id="sheetMoveDown" ${orderState.canMoveDown ? "" : "disabled"}>${icon("arrowDown")}<span>Move down</span></button>
           <button class="sheet-action danger" type="button" id="sheetRemove">${icon("trash")}<span>Remove from library</span></button>
         </div>
       </section>
@@ -909,6 +1068,80 @@ function renderFolderSheet(sheet: Extract<SheetState, { kind: "folder" }>): stri
         </label>
         ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
         <button class="primary-action" type="button" id="confirmFolder" ${sheet.name.trim() && pendingAction !== "folder" ? "" : "disabled"}>${pendingAction === "folder" ? "Creating..." : "Create"}</button>
+      </section>
+    </div>
+  `;
+}
+
+function renderFolderManageSheet(sheet: Extract<SheetState, { kind: "folderManage" }>): string {
+  return `
+    <div class="sheet-layer" id="sheetScrim">
+      <section class="bottom-sheet sheet-up folder-manage-sheet" aria-label="Manage folders">
+        <div class="sheet-handle"></div>
+        <h3>Manage folders</h3>
+        <p class="sheet-note">Rename, reorder, or delete folders. Deleting a folder keeps its books in Inbox.</p>
+        ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
+        <div class="folder-manage-list">
+          ${
+            foldersState.length
+              ? foldersState.map((folder, index) => renderFolderManageRow(folder, index)).join("")
+              : `<div class="empty-mini">No folders yet.</div>`
+          }
+        </div>
+        <button class="primary-action" type="button" id="folderManageNew">New folder</button>
+      </section>
+    </div>
+  `;
+}
+
+function renderFolderManageRow(folder: Folder, index: number): string {
+  const count = allBooksState.filter((book) => book.folder_id === folder.id).length;
+  return `
+    <div class="folder-manage-row">
+      <span class="folder-dot ${folderDotClass(index)}"></span>
+      <div class="folder-manage-copy">
+        <strong>${escapeHtml(folder.name)}</strong>
+        <small>${count} ${count === 1 ? "book" : "books"}</small>
+      </div>
+      <div class="folder-manage-actions">
+        <button type="button" data-folder-edit="${folder.id}" aria-label="Rename folder">${icon("edit")}</button>
+        <button type="button" data-folder-up="${folder.id}" ${index === 0 ? "disabled" : ""} aria-label="Move folder left">${icon("arrowUp")}</button>
+        <button type="button" data-folder-down="${folder.id}" ${index === foldersState.length - 1 ? "disabled" : ""} aria-label="Move folder right">${icon("arrowDown")}</button>
+        <button class="danger" type="button" data-folder-remove="${folder.id}" aria-label="Delete folder">${icon("trash")}</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderFolderEditSheet(sheet: Extract<SheetState, { kind: "folderEdit" }>): string {
+  return `
+    <div class="sheet-layer" id="sheetScrim">
+      <section class="bottom-sheet sheet-up" aria-label="Rename folder">
+        <div class="sheet-handle"></div>
+        <h3>Rename folder</h3>
+        <label class="folder-form">
+          <span>Name</span>
+          <input id="folderEditNameInput" value="${escapeHtml(sheet.name)}" maxlength="120" autocomplete="off" autofocus />
+        </label>
+        ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
+        <button class="primary-action" type="button" id="confirmFolderEdit" ${sheet.name.trim() && pendingAction !== "folderEdit" ? "" : "disabled"}>${pendingAction === "folderEdit" ? "Saving..." : "Save"}</button>
+      </section>
+    </div>
+  `;
+}
+
+function renderFolderRemoveSheet(sheet: Extract<SheetState, { kind: "folderRemove" }>): string {
+  return `
+    <div class="sheet-layer" id="sheetScrim">
+      <section class="bottom-sheet sheet-up" aria-label="Delete folder">
+        <div class="sheet-handle"></div>
+        <h3>Delete folder?</h3>
+        <p class="sheet-note">Books stay in your library and move back to Inbox.</p>
+        ${sheet.error ? `<p class="sheet-error">${escapeHtml(sheet.error)}</p>` : ""}
+        <div class="sheet-buttons">
+          <button class="ghost-button sheet-cancel" type="button" id="cancelFolderRemove">Cancel</button>
+          <button class="danger-action" type="button" id="confirmFolderRemove" ${pendingAction === "folderRemove" ? "disabled" : ""}>${pendingAction === "folderRemove" ? "Deleting..." : "Delete"}</button>
+        </div>
       </section>
     </div>
   `;
@@ -1046,6 +1279,20 @@ function bindLibraryControls() {
   });
   document.querySelector("#clearSearch")?.addEventListener("click", clearSearch);
   document.querySelector("#clearSearchEmpty")?.addEventListener("click", clearSearch);
+  document.querySelectorAll<HTMLElement>("[data-sort]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const sort = button.dataset.sort as LibrarySort;
+      librarySort = sort;
+      writeLibrarySort();
+      hapticSelection();
+      void loadBooks(selectedFolderId);
+    });
+  });
+  document.querySelector("#manageFolders")?.addEventListener("click", () => {
+    hapticImpact();
+    activeSheet = { kind: "folderManage", error: null };
+    render();
+  });
 }
 
 function bindSheetControls() {
@@ -1069,14 +1316,76 @@ function bindSheetControls() {
     });
     return;
   }
+  if (activeSheet.kind === "folderManage") {
+    document.querySelector("#folderManageNew")?.addEventListener("click", () => {
+      activeSheet = { kind: "folder", name: "", error: null };
+      updateActiveSheet();
+    });
+    document.querySelectorAll<HTMLElement>("[data-folder-edit]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const folder = findFolder(Number(button.dataset.folderEdit));
+        if (!folder) return;
+        hapticSelection();
+        activeSheet = { kind: "folderEdit", folder, name: folder.name, error: null };
+        updateActiveSheet();
+      });
+    });
+    document.querySelectorAll<HTMLElement>("[data-folder-up]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const folder = findFolder(Number(button.dataset.folderUp));
+        if (!folder) return;
+        void reorderFolder(folder, "up");
+      });
+    });
+    document.querySelectorAll<HTMLElement>("[data-folder-down]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const folder = findFolder(Number(button.dataset.folderDown));
+        if (!folder) return;
+        void reorderFolder(folder, "down");
+      });
+    });
+    document.querySelectorAll<HTMLElement>("[data-folder-remove]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const folder = findFolder(Number(button.dataset.folderRemove));
+        if (!folder) return;
+        hapticSelection();
+        activeSheet = { kind: "folderRemove", folder, error: null };
+        updateActiveSheet();
+      });
+    });
+    return;
+  }
+  if (activeSheet.kind === "folderEdit") {
+    const input = document.querySelector<HTMLInputElement>("#folderEditNameInput");
+    const saveButton = document.querySelector<HTMLButtonElement>("#confirmFolderEdit");
+    input?.focus();
+    input?.addEventListener("input", () => {
+      if (!activeSheet || activeSheet.kind !== "folderEdit") return;
+      activeSheet = { ...activeSheet, name: input.value, error: null };
+      if (saveButton) saveButton.disabled = !activeSheet.name.trim();
+    });
+    document.querySelector("#confirmFolderEdit")?.addEventListener("click", () => {
+      if (!activeSheet || activeSheet.kind !== "folderEdit") return;
+      void updateFolderName(activeSheet.folder, activeSheet.name);
+    });
+    return;
+  }
+  if (activeSheet.kind === "folderRemove") {
+    const folder = activeSheet.folder;
+    document.querySelector("#cancelFolderRemove")?.addEventListener("click", () => {
+      activeSheet = { kind: "folderManage", error: null };
+      updateActiveSheet();
+    });
+    document.querySelector("#confirmFolderRemove")?.addEventListener("click", () => {
+      void removeFolder(folder);
+    });
+    return;
+  }
   if (activeSheet.kind === "actions") {
     const book = activeSheet.book;
     document.querySelector("#sheetRead")?.addEventListener("click", () => {
       closeSheet();
       openBookById(book.id, "Read");
-    });
-    document.querySelector("#sheetNotes")?.addEventListener("click", () => {
-      void showNotesForBook(book);
     });
     document.querySelector("#sheetMove")?.addEventListener("click", () => {
       hapticSelection();
@@ -1088,6 +1397,8 @@ function bindSheetControls() {
       activeSheet = { kind: "edit", book, title: book.title, author: book.author ?? "", error: null };
       updateActiveSheet();
     });
+    document.querySelector("#sheetMoveUp")?.addEventListener("click", () => void reorderBook(book, "up"));
+    document.querySelector("#sheetMoveDown")?.addEventListener("click", () => void reorderBook(book, "down"));
     document.querySelector("#sheetRemove")?.addEventListener("click", () => {
       hapticSelection();
       activeSheet = { kind: "remove", book, error: null };
@@ -1222,6 +1533,10 @@ function replaceBookInState(updated: Book) {
     };
   }
   if (activeBook?.id === updated.id) activeBook = updated;
+}
+
+function findFolder(folderId: number): Folder | null {
+  return foldersState.find((folder) => folder.id === folderId) ?? null;
 }
 
 function removeBookFromState(bookId: number) {
@@ -1594,6 +1909,16 @@ function readAppTheme(): AppTheme {
   return window.localStorage.getItem("telegram-library-theme") === "day" ? "day" : "night";
 }
 
+function readLibrarySort(): LibrarySort {
+  const stored = window.localStorage.getItem("telegram-library-sort");
+  if (stored === "manual" || stored === "recent_opened" || stored === "recent_added") return stored;
+  return "recent_added";
+}
+
+function writeLibrarySort() {
+  window.localStorage.setItem("telegram-library-sort", librarySort);
+}
+
 function toggleReaderTheme() {
   readerTheme = readerTheme === "dark" ? "light" : "dark";
   document.body.classList.toggle("reader-light", readerTheme === "light");
@@ -1741,6 +2066,7 @@ function icon(name: string): string {
     sun: `<svg ${attrs} width="13" height="13"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"></path></svg>`,
     moon: `<svg ${filled}><path d="M20 14.5A8 8 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5z"></path></svg>`,
     bookOpen: `<svg ${attrs} width="34" height="34"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22z"></path><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22z"></path></svg>`,
+    arrowUp: `<svg ${attrs}><path d="M12 19V5"></path><path d="m6 11 6-6 6 6"></path></svg>`,
     arrowDown: `<svg ${attrs}><path d="M12 5v14"></path><path d="m6 13 6 6 6-6"></path></svg>`,
     arrowLeft: `<svg ${attrs}><path d="m15 18-6-6 6-6"></path></svg>`,
     alert: `<svg ${attrs}><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 4.4 2.8 17.4A2 2 0 0 0 4.5 20h15a2 2 0 0 0 1.7-2.6L13.7 4.4a2 2 0 0 0-3.4 0z"></path></svg>`,

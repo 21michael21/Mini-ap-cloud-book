@@ -14,7 +14,7 @@ from aiogram.types import (
     Message,
     WebAppInfo,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from backend.app.config import get_settings
@@ -204,6 +204,7 @@ async def handle_document(message: Message) -> None:
     normalized_title = normalize_title(title)
 
     with SessionLocal() as db:
+        next_order = db.scalar(select(func.coalesce(func.max(Book.sort_order), 0)).where(Book.user_id == user.id))
         possible_duplicate = find_possible_duplicate(
             db,
             user.id,
@@ -228,6 +229,7 @@ async def handle_document(message: Message) -> None:
             size_bytes=size_bytes,
             too_large=too_large,
             possible_duplicate=possible_duplicate is not None,
+            sort_order=(next_order or 0) + 10,
             folder_id=None,
             original_message_date=message.date,
         )

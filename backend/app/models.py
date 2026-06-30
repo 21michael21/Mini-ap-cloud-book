@@ -58,6 +58,7 @@ class Book(Base):
         UniqueConstraint("user_id", "tg_file_unique_id", name="uq_books_user_file_unique"),
         Index("ix_books_user_folder", "user_id", "folder_id"),
         Index("ix_books_user_added", "user_id", "added_at"),
+        Index("ix_books_user_sort", "user_id", "sort_order"),
         Index("ix_books_user_content_sha256", "user_id", "content_sha256"),
         Index("ix_books_user_normalized_title", "user_id", "normalized_title"),
     )
@@ -77,6 +78,7 @@ class Book(Base):
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     too_large: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     possible_duplicate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     folder_id: Mapped[int | None] = mapped_column(ForeignKey("folders.id", ondelete="SET NULL"))
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

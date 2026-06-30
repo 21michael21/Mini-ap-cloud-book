@@ -511,6 +511,8 @@ input:focus-visible {
 
 .folder-strip {
   margin-bottom: 14px;
+  display: grid;
+  gap: 10px;
 }
 
 .folder-chip {
@@ -590,6 +592,21 @@ input:focus-visible {
   font-size: 11px;
 }
 
+.folder-manage-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--button-border);
+  border-radius: 14px;
+  background: var(--button-bg);
+  color: var(--button-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .segmented {
   display: flex;
   gap: 4px;
@@ -667,6 +684,36 @@ input:focus-visible {
   margin: -6px 0 14px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.sort-row {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sort-row::-webkit-scrollbar {
+  display: none;
+}
+
+.sort-button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--button-border);
+  border-radius: 14px;
+  background: var(--button-bg);
+  color: var(--button-muted-text);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sort-button.active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--button-text);
 }
 
 .book-list {
@@ -1226,6 +1273,10 @@ mark {
   background: var(--button-bg-pressed);
 }
 
+.sheet-action:disabled {
+  opacity: 0.45;
+}
+
 .sheet-action.danger {
   color: var(--danger-soft-text);
 }
@@ -1237,6 +1288,71 @@ mark {
 .notes-sheet {
   max-height: min(82vh, 680px);
   overflow: auto;
+}
+
+.folder-manage-sheet {
+  max-height: min(82vh, 680px);
+  overflow: auto;
+}
+
+.folder-manage-list {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.folder-manage-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.folder-manage-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.folder-manage-copy strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-manage-copy small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.folder-manage-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.folder-manage-actions button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--button-border);
+  border-radius: 12px;
+  background: var(--button-bg);
+  color: var(--button-text);
+}
+
+.folder-manage-actions button:disabled {
+  opacity: 0.4;
+}
+
+.folder-manage-actions button.danger {
+  color: var(--danger-soft-text);
 }
 
 .notes-list {

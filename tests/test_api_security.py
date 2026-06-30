@@ -96,6 +96,7 @@ def seed_owner_data(client: TestClient) -> dict[str, int]:
             format="epub",
             size_bytes=1024,
             too_large=False,
+            sort_order=10,
             folder_id=None,
         )
         book_b = Book(
@@ -109,6 +110,7 @@ def seed_owner_data(client: TestClient) -> dict[str, int]:
             format="epub",
             size_bytes=1024,
             too_large=False,
+            sort_order=10,
             folder_id=folder_b.id,
         )
         too_large = Book(
@@ -122,6 +124,7 @@ def seed_owner_data(client: TestClient) -> dict[str, int]:
             format="pdf",
             size_bytes=25 * 1024 * 1024,
             too_large=True,
+            sort_order=20,
             folder_id=None,
         )
         db.add_all([book_a, book_b, too_large])
@@ -129,6 +132,7 @@ def seed_owner_data(client: TestClient) -> dict[str, int]:
         return {
             "book_a": book_a.id,
             "book_b": book_b.id,
+            "folder_a": folder_a.id,
             "folder_b": folder_b.id,
             "too_large": too_large.id,
         }
@@ -149,6 +153,11 @@ def test_user_cannot_read_or_move_another_users_book_or_folder(client: TestClien
         json={"folder_id": None},
         headers=auth_headers(1001),
     )
+    reorder_other_book = client.patch(
+        f"/api/books/{ids['book_b']}/reorder",
+        json={"direction": "up"},
+        headers=auth_headers(1001),
+    )
     list_other_folder = client.get(f"/api/books?folder_id={ids['folder_b']}", headers=auth_headers(1001))
     move_to_other_folder = client.patch(
         f"/api/books/{ids['book_a']}/move",
@@ -160,8 +169,44 @@ def test_user_cannot_read_or_move_another_users_book_or_folder(client: TestClien
     assert update_other_book.status_code == 404
     assert delete_other_book.status_code == 404
     assert move_other_book.status_code == 404
+    assert reorder_other_book.status_code == 404
     assert list_other_folder.status_code == 404
     assert move_to_other_folder.status_code == 404
+
+
+def test_user_can_reorder_own_books_up_and_down(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+    headers = auth_headers(1001)
+
+    up = client.patch(
+        f"/api/books/{ids['too_large']}/reorder",
+        json={"direction": "up", "inbox": True},
+        headers=headers,
+    )
+    manual = client.get("/api/books?inbox=true&sort=manual", headers=headers)
+    down = client.patch(
+        f"/api/books/{ids['too_large']}/reorder",
+        json={"direction": "down", "inbox": True},
+        headers=headers,
+    )
+    manual_again = client.get("/api/books?inbox=true&sort=manual", headers=headers)
+
+    assert up.status_code == 200
+    assert [book["id"] for book in manual.json()] == [ids["too_large"], ids["book_a"]]
+    assert down.status_code == 200
+    assert [book["id"] for book in manual_again.json()] == [ids["book_a"], ids["too_large"]]
+
+
+def test_reorder_book_cannot_escape_requested_scope(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+
+    response = client.patch(
+        f"/api/books/{ids['book_a']}/reorder",
+        json={"direction": "up", "folder_id": ids["folder_a"]},
+        headers=auth_headers(1001),
+    )
+
+    assert response.status_code == 404
 
 
 def test_user_can_update_own_book_title_and_author(client: TestClient) -> None:
@@ -360,3 +405,29 @@ def test_rename_duplicate_folder_returns_409(client: TestClient) -> None:
     assert first.status_code == 201
     assert second.status_code == 201
     assert response.status_code == 409
+
+
+def test_user_can_reorder_own_folders(client: TestClient) -> None:
+    headers = auth_headers(1001)
+    first = client.post("/api/folders", json={"name": "Research"}, headers=headers)
+    second = client.post("/api/folders", json={"name": "Archive"}, headers=headers)
+
+    response = client.patch(f"/api/folders/{second.json()['id']}/reorder", json={"direction": "up"}, headers=headers)
+    listed = client.get("/api/folders", headers=headers)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert response.status_code == 200
+    assert [folder["id"] for folder in listed.json()] == [second.json()["id"], first.json()["id"]]
+
+
+def test_user_cannot_reorder_another_users_folder(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+
+    response = client.patch(
+        f"/api/folders/{ids['folder_b']}/reorder",
+        json={"direction": "up"},
+        headers=auth_headers(1001),
+    )
+
+    assert response.status_code == 404
