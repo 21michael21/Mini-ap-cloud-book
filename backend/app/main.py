@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from backend.app.auth import current_user
 from backend.app.config import Settings, get_settings
 from backend.app.db import get_db
+from backend.app.duplicates import normalize_title
 from backend.app.models import Book, Folder, Note, ReadingPosition, User
 from backend.app.schemas import (
     BookOut,
@@ -108,6 +109,7 @@ def serialize_book(book: Book) -> BookOut:
         cover_ref=book.cover_ref,
         size_bytes=book.size_bytes,
         too_large=book.too_large,
+        possible_duplicate=book.possible_duplicate,
         folder_id=book.folder_id,
         added_at=book.added_at,
         last_opened_at=book.last_opened_at,
@@ -207,6 +209,7 @@ def update_book(
         if not title:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Title must not be empty")
         book.title = title
+        book.normalized_title = normalize_title(title)
     if "author" in payload.model_fields_set:
         author = (payload.author or "").strip()
         book.author = author or None

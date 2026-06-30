@@ -18,6 +18,7 @@ type Book = {
   cover_ref: string | null;
   size_bytes: number;
   too_large: boolean;
+  possible_duplicate: boolean;
   folder_id: number | null;
   progress_percent: number;
 };
@@ -671,6 +672,7 @@ function renderBookRow(book: Book, index: number): string {
           <span class="format-badge">${escapeHtml(book.format.toUpperCase())}</span>
           ${book.progress_percent <= 0 ? `<span class="new-badge">NEW</span>` : ""}
           ${book.too_large ? `<span class="new-badge">TOO LARGE</span>` : ""}
+          ${book.possible_duplicate ? `<span class="new-badge">POSSIBLE DUPLICATE</span>` : ""}
         </div>
         <h2>${highlightMatch(book.title)}</h2>
         <p>${escapeHtml(book.author ?? "Unknown author")}</p>

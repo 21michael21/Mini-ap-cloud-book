@@ -29,6 +29,7 @@ class BookOut(BaseModel):
     cover_ref: str | None
     size_bytes: int
     too_large: bool
+    possible_duplicate: bool = False
     folder_id: int | None
     added_at: datetime
     last_opened_at: datetime | None

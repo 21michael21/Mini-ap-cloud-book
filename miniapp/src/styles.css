@@ -725,6 +725,7 @@ input:focus-visible {
 .row-badges {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
   min-height: 17px;
 }

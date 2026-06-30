@@ -19,6 +19,13 @@ from sqlalchemy.exc import IntegrityError
 
 from backend.app.config import get_settings
 from backend.app.db import SessionLocal
+from backend.app.duplicates import (
+    file_sha256,
+    find_content_duplicate,
+    find_possible_duplicate,
+    find_tg_unique_duplicate,
+    normalize_title,
+)
 from backend.app.formats import (
     SUPPORTED_FORMATS,
     clean_title_from_filename,
@@ -135,48 +142,77 @@ async def handle_document(message: Message) -> None:
         await message.answer("This file is empty, so I cannot add it to your library.")
         return
 
-    too_large = size_bytes > settings.max_telegram_download_bytes
-    fmt = detect_format(file_name, document.mime_type)
-    sniffed_path: Path | None = None
-    sniff_temp_dir: tempfile.TemporaryDirectory[str] | None = None
-    if fmt not in SUPPORTED_FORMATS and not too_large:
-        try:
-            sniffed_path, sniff_temp_dir = await download_for_sniffing(message, file_name)
-            fmt = sniff_format(sniffed_path)
-        except Exception:
-            logger.exception("Could not sniff uploaded document %s", file_name)
-
-    if fmt not in SUPPORTED_FORMATS:
-        if sniff_temp_dir is not None:
-            sniff_temp_dir.cleanup()
-        await message.answer("This MVP supports EPUB, FB2, TXT, and PDF files.")
-        return
-
-    title, author, cover_ref = await metadata_for_document(
-        message,
-        fmt,
-        file_name,
-        too_large,
-        downloaded_path=sniffed_path,
-    )
-    if sniff_temp_dir is not None:
-        sniff_temp_dir.cleanup()
     user = get_or_create_user(message.from_user.id)
-
     with SessionLocal() as db:
-        existing = db.scalar(
-            select(Book).where(
-                Book.user_id == user.id,
-                Book.tg_file_unique_id == document.file_unique_id,
-            )
-        )
+        existing = find_tg_unique_duplicate(db, user.id, document.file_unique_id)
         if existing:
+            if existing.tg_file_id != document.file_id:
+                existing.tg_file_id = document.file_id
+                db.commit()
             await message.answer(
                 f"Already in your library: {existing.title}",
                 reply_markup=open_library_keyboard(),
             )
             return
 
+    too_large = size_bytes > settings.max_telegram_download_bytes
+    fmt = detect_format(file_name, document.mime_type)
+    downloaded_path: Path | None = None
+    download_temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    content_sha256: str | None = None
+    if not too_large:
+        try:
+            downloaded_path, download_temp_dir = await download_for_sniffing(message, file_name)
+            content_sha256 = file_sha256(downloaded_path)
+            if fmt not in SUPPORTED_FORMATS:
+                fmt = sniff_format(downloaded_path)
+        except Exception:
+            if download_temp_dir is not None:
+                download_temp_dir.cleanup()
+            logger.exception("Could not download uploaded document %s", file_name)
+            await message.answer("I could not read this file from Telegram. Please try sending it again.")
+            return
+
+    if fmt not in SUPPORTED_FORMATS:
+        if download_temp_dir is not None:
+            download_temp_dir.cleanup()
+        await message.answer("This MVP supports EPUB, FB2, TXT, and PDF files.")
+        return
+
+    if content_sha256:
+        with SessionLocal() as db:
+            existing = find_content_duplicate(db, user.id, content_sha256)
+            if existing:
+                if existing.tg_file_id != document.file_id:
+                    existing.tg_file_id = document.file_id
+                    db.commit()
+                if download_temp_dir is not None:
+                    download_temp_dir.cleanup()
+                await message.answer(
+                    f"Already in your library: {existing.title}",
+                    reply_markup=open_library_keyboard(),
+                )
+                return
+
+    title, author, cover_ref = await metadata_for_document(
+        message,
+        fmt,
+        file_name,
+        too_large,
+        downloaded_path=downloaded_path,
+    )
+    normalized_title = normalize_title(title)
+
+    with SessionLocal() as db:
+        possible_duplicate = find_possible_duplicate(
+            db,
+            user.id,
+            normalized_title=normalized_title,
+            author=author,
+            fmt=fmt,
+            size_bytes=size_bytes,
+            content_sha256=content_sha256,
+        )
         book = Book(
             user_id=user.id,
             tg_file_id=document.file_id,
@@ -185,25 +221,42 @@ async def handle_document(message: Message) -> None:
             mime_type=document.mime_type,
             title=title,
             author=author,
+            normalized_title=normalized_title,
             format=fmt,
             cover_ref=cover_ref,
+            content_sha256=content_sha256,
             size_bytes=size_bytes,
             too_large=too_large,
+            possible_duplicate=possible_duplicate is not None,
             folder_id=None,
+            original_message_date=message.date,
         )
         db.add(book)
         db.flush()
-        db.add(Event(user_id=user.id, type="file_uploaded", book_id=book.id, meta={"format": fmt}))
+        event_meta = {"format": fmt}
+        if possible_duplicate is not None:
+            event_meta["possible_duplicate_of"] = possible_duplicate.id
+        db.add(Event(user_id=user.id, type="file_uploaded", book_id=book.id, meta=event_meta))
         try:
             db.commit()
         except IntegrityError:
             db.rollback()
+            if download_temp_dir is not None:
+                download_temp_dir.cleanup()
             await message.answer("This file is already in your library.", reply_markup=open_library_keyboard())
             return
 
+    if download_temp_dir is not None:
+        download_temp_dir.cleanup()
+
     note = " It is over 20 MB, so it is saved but cannot open in-app in the MVP." if too_large else ""
+    duplicate_note = (
+        f"\n\nThis looks similar to an existing item: {possible_duplicate.title}."
+        if possible_duplicate is not None
+        else ""
+    )
     await message.answer(
-        f"Added to Inbox: {title}.{note}\n\nOpen Library to rename or organize it.",
+        f"Added to Inbox: {title}.{note}{duplicate_note}\n\nOpen Library to rename or organize it.",
         reply_markup=open_library_keyboard(),
     )
 
