@@ -158,11 +158,13 @@ def write_txt(path: Path) -> None:
     )
 
 
-def write_pdf(path: Path, *, scanned_like: bool = False) -> None:
+def write_pdf(path: Path, *, scanned_like: bool = False, blank: bool = False) -> None:
     pages = [
         b"BT /F1 20 Tf 40 150 Td (Reader E2E PDF Page 1) Tj ET\n0.9 g 40 40 220 70 re f",
         b"BT /F1 20 Tf 40 150 Td (Reader E2E PDF Page 2) Tj ET\n0.2 w 40 40 220 70 re S",
     ]
+    if blank:
+        pages = [b"", b""]
     if scanned_like:
         pages = [
             b"0.88 g 25 25 250 150 re f\n0.4 g 42 130 210 8 re f\n0.5 g 42 110 180 8 re f\n0.5 g 42 90 220 8 re f",
@@ -205,6 +207,7 @@ def main() -> None:
     write_txt(PUBLIC / "long.txt")
     write_pdf(PUBLIC / "small.pdf")
     write_pdf(PUBLIC / "scanned_like.pdf", scanned_like=True)
+    write_pdf(PUBLIC / "blank.pdf", blank=True)
     print(f"Wrote public reader fixtures to {PUBLIC}")
 
 

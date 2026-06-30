@@ -119,6 +119,7 @@ const PDF_MIN_ZOOM = 0.75;
 const PDF_MAX_ZOOM = 3;
 const PDF_ZOOM_STEP = 0.25;
 const PDF_MAX_DPR = 2.5;
+const PDF_BLANK_WHITE_RATIO = 0.996;
 const EMPTY_SECTION_TITLE = "This section has no readable text";
 const EMPTY_SECTION_HINT = "Try next section";
 const MIN_READABLE_SECTION_CHARS = 8;
@@ -353,14 +354,22 @@ export async function openPdfReader(
   const pdf = await pdfjs.getDocument({ data: buffer }).promise;
   const pageShell = document.createElement("div");
   pageShell.className = "pdf-page-shell";
+  pageShell.setAttribute("aria-live", "polite");
   const canvas = document.createElement("canvas");
   canvas.className = "pdf-canvas";
+  const blankLabel = document.createElement("div");
+  blankLabel.className = "pdf-blank-label";
+  blankLabel.textContent = "This page appears blank";
   pageShell.append(canvas);
+  pageShell.append(blankLabel);
   container.replaceChildren(pageShell);
   type RenderedPdfPage = {
     canvas: HTMLCanvasElement;
     cssWidth: number;
     cssHeight: number;
+    isBlank: boolean;
+    whitePixelRatio: number;
+    hasContent: boolean;
   };
   let pageNumber = parsePdfPage(restoreLocator, pdf.numPages);
   let requestedPage = pageNumber;
@@ -371,11 +380,11 @@ export async function openPdfReader(
   let destroyed = false;
   const pageCache = new Map<string, RenderedPdfPage>();
 
-  const renderPageToCanvas = async (page: number): Promise<RenderedPdfPage> => {
+  const renderPageToCanvas = async (page: number, force = false): Promise<RenderedPdfPage> => {
     const nextPageNumber = Math.min(Math.max(page, 1), pdf.numPages);
     const pdfPage = await pdf.getPage(nextPageNumber);
     const baseViewport = pdfPage.getViewport({ scale: 1 });
-    const containerWidth = Math.max(Math.floor(container.clientWidth || window.innerWidth), 1);
+    const containerWidth = await waitForStablePdfContainerWidth(container);
     const fitWidthScale = containerWidth / baseViewport.width;
     const scale = fitWidthScale * zoom;
     const viewport = pdfPage.getViewport({ scale });
@@ -384,16 +393,46 @@ export async function openPdfReader(
     const cssHeight = Math.ceil(viewport.height);
     const cacheKey = `${nextPageNumber}:${containerWidth}:${zoom.toFixed(2)}:${dpr.toFixed(2)}`;
     const cached = pageCache.get(cacheKey);
-    if (cached) return cached;
+    if (cached && !force) return cached;
 
-    const renderCanvas = document.createElement("canvas");
-    renderCanvas.width = Math.ceil(cssWidth * dpr);
-    renderCanvas.height = Math.ceil(cssHeight * dpr);
-    const context = renderCanvas.getContext("2d")!;
-    context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    context.clearRect(0, 0, cssWidth, cssHeight);
-    await pdfPage.render({ canvas: renderCanvas, canvasContext: context, viewport }).promise;
-    const rendered = { canvas: renderCanvas, cssWidth, cssHeight };
+    let renderCanvas = await renderPdfPageCanvas(pdfPage, viewport, cssWidth, cssHeight, dpr);
+    let renderCssWidth = cssWidth;
+    let renderCssHeight = cssHeight;
+    let blankStats = samplePdfCanvasBlankness(renderCanvas);
+    const hasContent = await pdfPageHasDetectableContent(pdfPage);
+    if (blankStats.isBlank && hasContent && !force) {
+      const safeViewport = pdfPage.getViewport({ scale: fitWidthScale });
+      const safeCssWidth = Math.ceil(safeViewport.width);
+      const safeCssHeight = Math.ceil(safeViewport.height);
+      const retryCanvas = await renderPdfPageCanvas(pdfPage, safeViewport, safeCssWidth, safeCssHeight, dpr);
+      const retryBlankStats = samplePdfCanvasBlankness(retryCanvas);
+      if (!retryBlankStats.isBlank || retryBlankStats.whitePixelRatio <= blankStats.whitePixelRatio) {
+        blankStats = retryBlankStats;
+        renderCanvas = retryCanvas;
+        renderCssWidth = safeCssWidth;
+        renderCssHeight = safeCssHeight;
+      }
+    }
+    if (import.meta.env.DEV) {
+      console.warn(
+        "[pdf diagnostic]",
+        JSON.stringify({
+          pageNumber: nextPageNumber,
+          canvasWidth: renderCanvas.width,
+          canvasHeight: renderCanvas.height,
+          whitePixelRatio: blankStats.whitePixelRatio,
+          hasContent,
+        }),
+      );
+    }
+    const rendered = {
+      canvas: renderCanvas,
+      cssWidth: renderCssWidth,
+      cssHeight: renderCssHeight,
+      isBlank: blankStats.isBlank,
+      whitePixelRatio: blankStats.whitePixelRatio,
+      hasContent,
+    };
     pageCache.set(cacheKey, rendered);
     trimPageCache(nextPageNumber);
     return rendered;
@@ -426,6 +465,7 @@ export async function openPdfReader(
 
   const renderPageNow = async (page: number, renderId: number) => {
     const nextPageNumber = Math.min(Math.max(page, 1), pdf.numPages);
+    pageShell.classList.add("is-loading");
     const rendered = await renderPageToCanvas(nextPageNumber);
     if (renderId !== requestedRenderId) return;
 
@@ -438,6 +478,10 @@ export async function openPdfReader(
     visibleContext.setTransform(1, 0, 0, 1, 0, 0);
     visibleContext.clearRect(0, 0, canvas.width, canvas.height);
     visibleContext.drawImage(rendered.canvas, 0, 0);
+    pageShell.classList.remove("is-loading");
+    pageShell.classList.toggle("is-blank", rendered.isBlank);
+    pageShell.dataset.blank = rendered.isBlank ? "true" : "false";
+    pageShell.dataset.whitePixelRatio = rendered.whitePixelRatio.toFixed(4);
     completedRenderId = renderId;
     trimPageCache(pageNumber);
     warmAdjacentPages(pageNumber);
@@ -495,6 +539,72 @@ export async function openPdfReader(
       void pdf.cleanup();
     },
   };
+}
+
+async function waitForStablePdfContainerWidth(container: HTMLElement): Promise<number> {
+  let previous = 0;
+  let stableFrames = 0;
+  for (let frame = 0; frame < 12; frame += 1) {
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    const width = Math.floor(container.clientWidth || container.getBoundingClientRect().width || 0);
+    if (width > 16 && Math.abs(width - previous) <= 1) stableFrames += 1;
+    else stableFrames = 0;
+    if (width > 16 && stableFrames >= 1) return width;
+    previous = width;
+  }
+  return Math.max(Math.floor(container.clientWidth || container.getBoundingClientRect().width || window.innerWidth), 1);
+}
+
+async function renderPdfPageCanvas(
+  pdfPage: pdfjs.PDFPageProxy,
+  viewport: pdfjs.PageViewport,
+  cssWidth: number,
+  cssHeight: number,
+  dpr: number,
+): Promise<HTMLCanvasElement> {
+  const retryCanvas = document.createElement("canvas");
+  retryCanvas.width = Math.ceil(cssWidth * dpr);
+  retryCanvas.height = Math.ceil(cssHeight * dpr);
+  const retryContext = retryCanvas.getContext("2d")!;
+  retryContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+  retryContext.clearRect(0, 0, cssWidth, cssHeight);
+  await pdfPage.render({ canvas: retryCanvas, canvasContext: retryContext, viewport }).promise;
+  return retryCanvas;
+}
+
+function samplePdfCanvasBlankness(canvas: HTMLCanvasElement): { isBlank: boolean; whitePixelRatio: number } {
+  if (canvas.width <= 0 || canvas.height <= 0) return { isBlank: true, whitePixelRatio: 1 };
+  const sample = document.createElement("canvas");
+  sample.width = Math.min(96, Math.max(1, canvas.width));
+  sample.height = Math.min(128, Math.max(1, canvas.height));
+  const context = sample.getContext("2d");
+  if (!context) return { isBlank: false, whitePixelRatio: 0 };
+  context.drawImage(canvas, 0, 0, sample.width, sample.height);
+  const data = context.getImageData(0, 0, sample.width, sample.height).data;
+  let white = 0;
+  let total = 0;
+  for (let index = 0; index < data.length; index += 4) {
+    const red = data[index] ?? 255;
+    const green = data[index + 1] ?? 255;
+    const blue = data[index + 2] ?? 255;
+    const alpha = data[index + 3] ?? 0;
+    const isWhite = alpha < 8 || (red >= 248 && green >= 248 && blue >= 248);
+    if (isWhite) white += 1;
+    total += 1;
+  }
+  const whitePixelRatio = total <= 0 ? 1 : white / total;
+  return { isBlank: whitePixelRatio >= PDF_BLANK_WHITE_RATIO, whitePixelRatio };
+}
+
+async function pdfPageHasDetectableContent(pdfPage: {
+  getTextContent?: () => Promise<{ items?: unknown[] }>;
+  getOperatorList?: () => Promise<{ fnArray?: unknown[] }>;
+}): Promise<boolean> {
+  const [textContent, operatorList] = await Promise.all([
+    pdfPage.getTextContent?.().catch(() => null) ?? Promise.resolve(null),
+    pdfPage.getOperatorList?.().catch(() => null) ?? Promise.resolve(null),
+  ]);
+  return Boolean((textContent?.items?.length ?? 0) > 0 || (operatorList?.fnArray?.length ?? 0) > 0);
 }
 
 async function makePlainTextBook(file: File): Promise<PlainTextBook> {

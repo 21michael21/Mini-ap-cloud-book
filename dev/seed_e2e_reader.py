@@ -36,6 +36,7 @@ FIXTURE_ORDER = [
     "long.txt",
     "small.pdf",
     "scanned_like.pdf",
+    "blank.pdf",
 ]
 
 
@@ -165,6 +166,7 @@ def fixture_title(path: Path) -> str:
         "long.txt": "Reader E2E Long TXT",
         "small.pdf": "Reader E2E Small PDF",
         "scanned_like.pdf": "Reader E2E Scanned Like PDF",
+        "blank.pdf": "Reader E2E Blank PDF",
     }[path.name]
 
 

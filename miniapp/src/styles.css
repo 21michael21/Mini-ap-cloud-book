@@ -2135,7 +2135,9 @@ body.reader-light .reader-settings-sheet .sort-button.active {
 }
 
 body.reader-sepia .reader-settings-sheet .sort-button.active {
-  color: #1a120a;
+  border-color: #f1be79;
+  background: #f1be79;
+  color: #120c06;
 }
 
 .reader-settings-sheet .secondary,
@@ -2153,11 +2155,15 @@ body.reader-sepia .reader-settings-sheet .sort-button.active {
 }
 
 .pdf-page-shell {
+  position: relative;
   display: flex;
+  align-items: center;
   justify-content: center;
   min-width: 100%;
   width: max-content;
+  margin: 0 auto;
   padding-bottom: var(--reader-bottom-clearance);
+  border-radius: 12px;
 }
 
 .pdf-canvas {
@@ -2165,6 +2171,64 @@ body.reader-sepia .reader-settings-sheet .sort-button.active {
   flex: 0 0 auto;
   max-width: none;
   background: #fff;
+  border: 1px solid rgba(12, 14, 20, 0.22);
+  border-radius: 10px;
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.28),
+    0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+body.reader-light .pdf-canvas {
+  border-color: rgba(35, 42, 62, 0.2);
+  box-shadow:
+    0 18px 44px rgba(35, 42, 62, 0.18),
+    0 2px 8px rgba(35, 42, 62, 0.12);
+}
+
+body.reader-sepia .pdf-canvas {
+  border-color: rgba(214, 161, 95, 0.28);
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.34),
+    0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.pdf-page-shell::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: calc(var(--reader-bottom-clearance) + 1px);
+  left: 1px;
+  border-radius: 10px;
+  background: linear-gradient(110deg, transparent 20%, rgba(139, 155, 255, 0.2) 50%, transparent 80%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.pdf-page-shell.is-loading::after {
+  opacity: 0.55;
+}
+
+.pdf-blank-label {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  display: none;
+  transform: translateX(-50%);
+  padding: 8px 11px;
+  border: 1px solid var(--button-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  color: var(--button-text);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+}
+
+.pdf-page-shell.is-blank .pdf-blank-label {
+  display: block;
 }
 
 .glow {

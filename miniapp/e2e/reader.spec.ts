@@ -22,6 +22,7 @@ const books = {
   txt: "Reader E2E Long TXT",
   pdf: "Reader E2E Small PDF",
   scannedPdf: "Reader E2E Scanned Like PDF",
+  blankPdf: "Reader E2E Blank PDF",
   rename: "Reader E2E Simple EPUB",
   delete: "Reader E2E Bad Markup EPUB",
   move: "Reader E2E CP1251 FB2",
@@ -279,8 +280,10 @@ test.describe("reader e2e", () => {
     await expect(canvas).toBeVisible();
     await expect(page.locator("#readerBottomLabel")).toContainText(/1 \/ 2/);
     await expect(canvas).toPassCanvasDprCheck();
+    await expectPdfPageFrameVisible(page);
     await expectPdfFitWidth(page);
     await expect.poll(() => canvasNonBlankScore(page)).toBeGreaterThan(20);
+    await maybeScreenshot(page, testInfo, "pdf-page-frame");
     await maybeScreenshot(page, testInfo, "pdf-fit-width");
     if (isReaderUiV2) await maybeScreenshot(page, testInfo, "reader-v2-pdf");
 
@@ -324,10 +327,24 @@ test.describe("reader e2e", () => {
     const canvas = page.locator(".pdf-canvas");
     await expect(canvas).toBeVisible();
     await expect(canvas).toPassCanvasDprCheck();
+    await expectPdfPageFrameVisible(page);
     await expectPdfFitWidth(page);
     await expect(page.locator("#readerBottomLabel")).toContainText(/1 \/ 2/);
     await expect.poll(() => canvasNonBlankScore(page)).toBeGreaterThan(20);
     await maybeScreenshot(page, testInfo, "pdf-scanned-like");
+  });
+
+  test("blank PDF page keeps page frame and shows a subtle blank label", async ({ page }, testInfo) => {
+    await resetBookPosition("blank.pdf", "1", 0);
+    await page.addInitScript(() => window.localStorage.setItem("telegram-library-pdf-zoom", "1"));
+    await openBook(page, books.blankPdf);
+    const canvas = page.locator(".pdf-canvas");
+    await expect(canvas).toBeVisible();
+    await expect(canvas).toPassCanvasDprCheck();
+    await expectPdfPageFrameVisible(page);
+    await expect(page.locator(".pdf-page-shell")).toHaveClass(/is-blank/);
+    await expect(page.locator(".pdf-blank-label")).toContainText("This page appears blank");
+    await maybeScreenshot(page, testInfo, "pdf-blank-page-state");
   });
 
   test("library covers load real images and polished fallbacks", async ({ page }, testInfo) => {
@@ -799,6 +816,19 @@ async function expectPdfFitWidth(page: Page): Promise<void> {
     return Number.isFinite(cssWidth) && cssWidth <= stage.clientWidth + 3 && stage.scrollWidth <= stage.clientWidth + 3;
   });
   expect(fits).toBe(true);
+}
+
+async function expectPdfPageFrameVisible(page: Page): Promise<void> {
+  await expect(page.locator(".pdf-page-shell")).toBeVisible();
+  const frameVisible = await page.locator(".pdf-canvas").evaluate((canvasElement: HTMLCanvasElement) => {
+    const style = getComputedStyle(canvasElement);
+    const borderWidth = Number.parseFloat(style.borderTopWidth);
+    const borderColorVisible = style.borderTopColor !== "rgba(0, 0, 0, 0)";
+    const radius = Number.parseFloat(style.borderTopLeftRadius);
+    const hasShadow = style.boxShadow !== "none";
+    return borderWidth >= 1 && borderColorVisible && radius > 0 && hasShadow;
+  });
+  expect(frameVisible).toBe(true);
 }
 
 async function canvasNonBlankScore(page: Page): Promise<number> {
