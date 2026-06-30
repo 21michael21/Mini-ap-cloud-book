@@ -413,10 +413,22 @@ without CSP violations in Telegram WebView.
 
 Book HTML is sanitized before rendering and placed in sandboxed iframes with `sandbox="allow-same-origin"` and no `allow-scripts`.
 
-Reader A/B flags are for local experiments only and must not be set on VDS until
-a reader decision is made. See `docs/reader-quality/ab-reader-experiments.md`
-for `VITE_TEXT_READER_ENGINE`, `VITE_TEXT_RENDER_MODE`, `VITE_PDF_READER_MODE`,
+Current stable reader defaults are:
+
+- `VITE_TEXT_READER_ENGINE=custom`
+- `VITE_TEXT_RENDER_MODE=clean`
+- `VITE_PDF_READER_MODE=canvas`
+- `VITE_READER_UI=v2`
+
+Reader A/B flags are for local experiments only and must not be set on VDS
+unless a later reader decision explicitly promotes them. See
+`docs/reader-quality/ab-reader-experiments.md` for
+`VITE_TEXT_READER_ENGINE`, `VITE_TEXT_RENDER_MODE`, `VITE_PDF_READER_MODE`,
 and `VITE_READER_UI`.
+
+To verify which mode a local e2e run used, open the newest JSON report in
+`reports/reader-experiments/`. The filename includes the mode, and each record
+also contains `engine`, `renderMode`, `pdfReaderMode`, and `readerUi`.
 
 Private reader fixtures are local-only and gitignored. If files exist in
 `dev/reader_fixtures/private/`, `scripts/local_quality_gate.sh` runs the private

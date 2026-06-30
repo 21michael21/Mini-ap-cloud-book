@@ -30,7 +30,7 @@ function readModeConfig(overrides = {}) {
       argValue("--text-reader-engine", process.env.VITE_TEXT_READER_ENGINE ?? process.env.VITE_READER_ENGINE ?? "custom"),
     textRenderMode: overrides.textRenderMode ?? argValue("--text-render-mode", process.env.VITE_TEXT_RENDER_MODE ?? "clean"),
     pdfReaderMode: overrides.pdfReaderMode ?? argValue("--pdf-reader-mode", process.env.VITE_PDF_READER_MODE ?? "canvas"),
-    readerUi: overrides.readerUi ?? argValue("--reader-ui", process.env.VITE_READER_UI ?? "v1"),
+    readerUi: overrides.readerUi ?? argValue("--reader-ui", process.env.VITE_READER_UI ?? "v2"),
   };
 }
 

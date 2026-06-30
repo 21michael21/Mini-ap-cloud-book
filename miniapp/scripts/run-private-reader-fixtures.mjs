@@ -24,7 +24,7 @@ function readModeConfig() {
     textReaderEngine: argValue("--text-reader-engine", process.env.VITE_TEXT_READER_ENGINE ?? process.env.VITE_READER_ENGINE ?? "custom"),
     textRenderMode: argValue("--text-render-mode", process.env.VITE_TEXT_RENDER_MODE ?? "clean"),
     pdfReaderMode: argValue("--pdf-reader-mode", process.env.VITE_PDF_READER_MODE ?? "canvas"),
-    readerUi: argValue("--reader-ui", process.env.VITE_READER_UI ?? "v1"),
+    readerUi: argValue("--reader-ui", process.env.VITE_READER_UI ?? "v2"),
   };
 }
 

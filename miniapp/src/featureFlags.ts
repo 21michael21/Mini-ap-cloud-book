@@ -27,5 +27,5 @@ export const readerFeatureFlags: ReaderFeatureFlags = {
   ),
   textRenderMode: readFlag(import.meta.env.VITE_TEXT_RENDER_MODE, TEXT_RENDER_MODES, "clean"),
   pdfReaderMode: readFlag(import.meta.env.VITE_PDF_READER_MODE, PDF_READER_MODES, "canvas"),
-  readerUi: readFlag(import.meta.env.VITE_READER_UI, READER_UI_VERSIONS, "v1"),
+  readerUi: readFlag(import.meta.env.VITE_READER_UI, READER_UI_VERSIONS, "v2"),
 };
