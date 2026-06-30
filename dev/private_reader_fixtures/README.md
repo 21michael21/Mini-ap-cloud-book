@@ -12,7 +12,13 @@ Suggested local workflow:
 4. Run the reader harness:
 
 ```bash
-python dev/generate_reader_samples.py
+.venv/bin/python dev/check_private_reader_fixtures.py
+.venv/bin/python dev/generate_reader_samples.py
+.venv/bin/python dev/seed_reader_harness.py
 cd miniapp
 npm run build:harness
 ```
+
+Private files are for local reproduction only. When you identify a rendering pattern,
+add a tiny synthetic fixture to `dev/generate_reader_samples.py` instead of copying
+book text into the repo.

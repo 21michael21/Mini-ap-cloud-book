@@ -6,6 +6,11 @@ What this checks:
 - Russian punctuation: Привет, мир — кавычки «ёлочки» and long URLs stay readable.
 - A very long URL: https://example.com/really/long/path/that/should/not/break/the/mobile/reader/layout
 
+List-like content:
+1. Headings and paragraphs keep spacing.
+2. Tables in source formats scroll horizontally.
+3. LongWordsWithoutSpacesWrapCorrectlyLongWordsWithoutSpacesWrapCorrectly.
+
 Paragraph 1. This plain text document proves the TXT reader restores scroll position.
 
 Paragraph 2. This plain text document proves the TXT reader restores scroll position.

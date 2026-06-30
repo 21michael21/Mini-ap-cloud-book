@@ -21,6 +21,7 @@ type HarnessResult = {
   rendered: boolean;
   positionSaved: boolean;
   positionRestored: boolean;
+  cleanDom?: boolean;
   highDpiCanvas?: boolean | null;
   cspViolations: string[];
   locator: string | null;
@@ -108,6 +109,7 @@ async function verifyTextFormat(book: Book): Promise<HarnessResult> {
     },
     book.format,
   );
+  const cleanDom = verifyCleanDom(stage, book.format);
   if (book.format === "txt") {
     scrollReaderFrame(stage, 0.55);
   } else {
@@ -142,12 +144,13 @@ async function verifyTextFormat(book: Book): Promise<HarnessResult> {
 
   return {
     format: book.format,
-    rendered: hasCleanHarnessText(visibleText) || hasCleanHarnessText(restoredText),
+    rendered: (hasCleanHarnessText(visibleText) || hasCleanHarnessText(restoredText)) && cleanDom,
     positionSaved:
       book.format === "txt"
         ? Boolean(txtLocator && txtLocator.scrollRatio > 0 && (persisted?.percent ?? 0) > 0)
         : Boolean(textLocator && textLocator.sectionIndex > 0 && (persisted?.percent ?? 0) > 0),
     positionRestored: Boolean(restoredText && expectedSectionRestored && expectedScrollRestored),
+    cleanDom,
     cspViolations: [...cspViolations],
     locator: persisted?.locator ?? null,
     error: null,
@@ -155,7 +158,24 @@ async function verifyTextFormat(book: Book): Promise<HarnessResult> {
 }
 
 function hasCleanHarnessText(text: string): boolean {
-  return text.includes("Harness") && text.includes("Clean Mode");
+  return text.includes("Harness") && text.includes("Clean Mode") && text.includes("Привет");
+}
+
+function verifyCleanDom(stage: HTMLElement, format: Book["format"]): boolean {
+  const doc = stage.querySelector<HTMLIFrameElement>(".book-frame")?.contentDocument;
+  if (!doc) return false;
+  if (doc.querySelector("script, iframe, object, embed, form, input, button, select, textarea")) return false;
+  if (doc.querySelector("[style], [onclick], [onload], [onerror]")) return false;
+  if (!doc.querySelector(".reader-article")) return false;
+  if (format !== "epub") return true;
+  return Boolean(
+    doc.querySelector("h1") &&
+      doc.querySelector("h2") &&
+      doc.querySelector("ul li") &&
+      doc.querySelector("blockquote") &&
+      doc.querySelector("table th") &&
+      doc.querySelector('img[alt="Harness inline image"]'),
+  );
 }
 
 async function verifyPdf(book: Book): Promise<HarnessResult> {

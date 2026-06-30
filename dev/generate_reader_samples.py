@@ -15,6 +15,10 @@ def write_txt() -> None:
         "What this checks:\n"
         "- Russian punctuation: Привет, мир — кавычки «ёлочки» and long URLs stay readable.\n"
         "- A very long URL: https://example.com/really/long/path/that/should/not/break/the/mobile/reader/layout\n\n"
+        "List-like content:\n"
+        "1. Headings and paragraphs keep spacing.\n"
+        "2. Tables in source formats scroll horizontally.\n"
+        "3. LongWordsWithoutSpacesWrapCorrectlyLongWordsWithoutSpacesWrapCorrectly.\n\n"
         + "\n\n".join(
             f"Paragraph {index}. This plain text document proves the TXT reader restores scroll position."
             for index in range(1, 80)
@@ -40,6 +44,11 @@ def write_fb2() -> None:
       <title><p>Harness FB2</p></title>
       <p>This FB2 document proves the FictionBook reader renders visible text.</p>
       <p><strong>Clean Mode FB2</strong> keeps Russian text readable: Привет, мир, «кавычки», длинные слова и ссылки.</p>
+      <p>LongWordsWithoutSpacesWrapCorrectlyLongWordsWithoutSpacesWrapCorrectly and https://example.com/очень/длинная/ссылка/для/mobile/webview.</p>
+      <cite><p>A compact quote should keep readable spacing.</p></cite>
+      <empty-line/>
+      <p>1. List-like first item</p>
+      <p>2. List-like second item</p>
       {''.join(f'<p>First section paragraph {index} for scroll restoration.</p>' for index in range(1, 40))}
     </section>
     <section>
@@ -114,7 +123,8 @@ def write_epub() -> None:
   </head>
   <body>
     <h1>Harness EPUB</h1>
-    <p>This EPUB document proves the EPUB reader renders visible text.</p>
+    <p onclick="alert('blocked')">This EPUB document proves the EPUB reader renders visible text.</p>
+    <script>alert("must not execute")</script>
     <h2>Clean Mode EPUB</h2>
     <p>Clean reading normalizes messy source markup while preserving readable order, Russian text: Привет, мир, «ёлочки», and long URLs like https://example.com/really/long/path/that/should/wrap/on/mobile/screens.</p>
     <blockquote><p>A compact quote should get readable spacing without source CSS.</p></blockquote>

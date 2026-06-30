@@ -110,7 +110,9 @@ const PDF_MIN_ZOOM = 0.75;
 const PDF_MAX_ZOOM = 3;
 const PDF_ZOOM_STEP = 0.25;
 const PDF_MAX_DPR = 2.5;
-const EMPTY_SECTION_MESSAGE = "This section has no readable text. Try next section.";
+const EMPTY_SECTION_TITLE = "This section has no readable text";
+const EMPTY_SECTION_HINT = "Try next section";
+const MIN_READABLE_SECTION_CHARS = 8;
 const CLEAN_READER_TAGS = new Set([
   "h1",
   "h2",
@@ -134,6 +136,13 @@ const CLEAN_READER_TAGS = new Set([
   "td",
   "img",
   "a",
+  "strong",
+  "em",
+  "b",
+  "i",
+  "small",
+  "sup",
+  "sub",
 ]);
 const DROPPED_READER_TAGS = new Set([
   "script",
@@ -251,7 +260,7 @@ export async function openFoliateReader(
       fontSizePx,
       theme,
     );
-    const renderedText = iframe.contentDocument?.body?.innerText?.trim() || EMPTY_SECTION_MESSAGE;
+    const renderedText = iframe.contentDocument?.body?.innerText?.trim() || `${EMPTY_SECTION_TITLE} ${EMPTY_SECTION_HINT}`;
     warnReaderDiagnostics(
       normalizedFormat ?? (isTxt ? "txt" : "epub"),
       sections.length,
@@ -628,13 +637,26 @@ function makeCleanReaderHtml(sourceDoc: Document): string {
   cleanDoc.body.append(article);
   const sourceRoot = sourceDoc.body ?? sourceDoc.documentElement;
   appendCleanChildren(sourceRoot, article, cleanDoc);
-  if (!article.textContent?.trim() && !article.querySelector("img")) {
-    const empty = cleanDoc.createElement("p");
-    empty.className = "reader-empty-section";
-    empty.textContent = EMPTY_SECTION_MESSAGE;
-    article.append(empty);
-  }
+  if (isUnreadableCleanSection(article)) appendEmptySectionFallback(article, cleanDoc);
   return `<!doctype html>${cleanDoc.documentElement.outerHTML}`;
+}
+
+function isUnreadableCleanSection(article: HTMLElement): boolean {
+  if (article.querySelector("img")) return false;
+  const readableText = article.textContent?.replace(/\s+/g, " ").trim() ?? "";
+  return readableText.length < MIN_READABLE_SECTION_CHARS;
+}
+
+function appendEmptySectionFallback(article: HTMLElement, cleanDoc: Document): void {
+  article.replaceChildren();
+  const empty = cleanDoc.createElement("section");
+  empty.className = "reader-empty-section";
+  const title = cleanDoc.createElement("h2");
+  title.textContent = EMPTY_SECTION_TITLE;
+  const hint = cleanDoc.createElement("p");
+  hint.textContent = EMPTY_SECTION_HINT;
+  empty.append(title, hint);
+  article.append(empty);
 }
 
 function appendCleanChildren(source: Node, target: Node, cleanDoc: Document): void {
@@ -655,7 +677,7 @@ function appendCleanNode(source: Node, target: Node, cleanDoc: Document): void {
     return;
   }
 
-  if (tagName === "img" && !isSafeReaderUrl(source.getAttribute("src"))) return;
+  if (tagName === "img" && !isSafeReaderImageUrl(source.getAttribute("src"))) return;
   const element = cleanDoc.createElement(tagName);
   copyCleanReaderAttributes(source, element, tagName);
   target.appendChild(element);
@@ -665,7 +687,7 @@ function appendCleanNode(source: Node, target: Node, cleanDoc: Document): void {
 function copyCleanReaderAttributes(source: Element, target: Element, tagName: string): void {
   if (tagName === "a") {
     const href = source.getAttribute("href");
-    if (isSafeReaderUrl(href)) {
+    if (isSafeReaderLinkUrl(href)) {
       target.setAttribute("href", href!);
       target.setAttribute("rel", "noopener noreferrer");
       target.setAttribute("target", "_blank");
@@ -673,7 +695,7 @@ function copyCleanReaderAttributes(source: Element, target: Element, tagName: st
   }
   if (tagName === "img") {
     const src = source.getAttribute("src");
-    if (isSafeReaderUrl(src)) target.setAttribute("src", src!);
+    if (isSafeReaderImageUrl(src)) target.setAttribute("src", src!);
     for (const attr of ["alt", "title", "width", "height", "loading"]) copyPlainAttribute(source, target, attr);
     return;
   }
@@ -692,11 +714,20 @@ function copyPlainAttribute(source: Element, target: Element, name: string): voi
   if (value && !/[<>]/.test(value)) target.setAttribute(name, value);
 }
 
-function isSafeReaderUrl(value: string | null): boolean {
+function isSafeReaderLinkUrl(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized.startsWith("javascript:") || normalized.startsWith("vbscript:")) return false;
+  if (normalized.startsWith("data:")) return false;
+  return true;
+}
+
+function isSafeReaderImageUrl(value: string | null): boolean {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();
   if (!normalized || normalized.startsWith("javascript:") || normalized.startsWith("vbscript:")) return false;
   if (normalized.startsWith("data:")) return normalized.startsWith("data:image/");
+  if (normalized.startsWith("http:") || normalized.startsWith("https:") || normalized.startsWith("//")) return false;
   return true;
 }
 
