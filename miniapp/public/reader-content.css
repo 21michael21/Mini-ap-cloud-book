@@ -1,3 +1,51 @@
+@font-face {
+  font-family: "Literata";
+  src: url("/fonts/literata-400.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Literata";
+  src: url("/fonts/literata-500.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 500;
+}
+
+@font-face {
+  font-family: "Literata";
+  src: url("/fonts/literata-600.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 600;
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/fonts/space-grotesk-400.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/fonts/space-grotesk-500.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 500;
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/fonts/space-grotesk-600.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 600;
+}
+
 html.reader-font-15 {
   font-size: 15px;
 }
@@ -126,6 +174,36 @@ h6 {
   margin: 1.55em 0 0.65em;
   overflow-wrap: anywhere;
   word-break: normal;
+}
+
+html.reader-family-literata body,
+html.reader-family-literata h1,
+html.reader-family-literata h2,
+html.reader-family-literata h3,
+html.reader-family-literata h4,
+html.reader-family-literata h5,
+html.reader-family-literata h6 {
+  font-family: "Literata", Georgia, "Times New Roman", serif;
+}
+
+html.reader-family-serif body,
+html.reader-family-serif h1,
+html.reader-family-serif h2,
+html.reader-family-serif h3,
+html.reader-family-serif h4,
+html.reader-family-serif h5,
+html.reader-family-serif h6 {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+html.reader-family-sans body,
+html.reader-family-sans h1,
+html.reader-family-sans h2,
+html.reader-family-sans h3,
+html.reader-family-sans h4,
+html.reader-family-sans h5,
+html.reader-family-sans h6 {
+  font-family: "Space Grotesk", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 html.reader-theme-dark h1,

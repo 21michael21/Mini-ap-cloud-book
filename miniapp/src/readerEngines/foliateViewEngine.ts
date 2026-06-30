@@ -2,6 +2,7 @@ import "foliate-js/view.js";
 import type {
   Position,
   ReaderContentTheme,
+  ReaderFontFamily,
   ReaderLineSpacing,
   ReaderMargin,
   TextReaderController,
@@ -85,6 +86,7 @@ export async function openFoliateViewReader(
   let destroyed = false;
   let navigating = false;
   let fontSizePx = clamp(options.fontSizePx ?? 18, MIN_FONT_SIZE, MAX_FONT_SIZE);
+  let fontFamily: ReaderFontFamily = options.fontFamily ?? "literata";
   let theme: ReaderContentTheme = options.theme ?? "dark";
   let lineSpacing: ReaderLineSpacing = options.lineSpacing ?? "normal";
   let margin: ReaderMargin = options.margin ?? "normal";
@@ -95,7 +97,7 @@ export async function openFoliateViewReader(
   const restored = parseFoliateViewLocator(restoreLocator);
 
   const applyToLoadedDocs = () => {
-    for (const doc of loadedDocs) applyReaderDocumentClasses(doc, fontSizePx, theme, lineSpacing, margin);
+    for (const doc of loadedDocs) applyReaderDocumentClasses(doc, fontSizePx, fontFamily, theme, lineSpacing, margin);
   };
 
   const emitStatus = () => {
@@ -115,7 +117,7 @@ export async function openFoliateViewReader(
     const doc = detail?.doc;
     if (!doc) return;
     loadedDocs.add(doc);
-    applyReaderDocumentClasses(doc, fontSizePx, theme, lineSpacing, margin);
+    applyReaderDocumentClasses(doc, fontSizePx, fontFamily, theme, lineSpacing, margin);
     doc.addEventListener("pointerup", handleDocumentPointerUp);
     onVisibleText?.(doc.body?.innerText?.trim() ?? "");
   };
@@ -207,6 +209,10 @@ export async function openFoliateViewReader(
     nextSection: () => navigate("next"),
     setFontSize: (nextFontSizePx: number) => {
       fontSizePx = clamp(nextFontSizePx, MIN_FONT_SIZE, MAX_FONT_SIZE);
+      applyToLoadedDocs();
+    },
+    setFontFamily: (nextFontFamily: ReaderFontFamily) => {
+      fontFamily = nextFontFamily;
       applyToLoadedDocs();
     },
     setLineSpacing: (nextLineSpacing: ReaderLineSpacing) => {
@@ -305,6 +311,7 @@ async function makePlainTextBook(file: File): Promise<PlainTextBook> {
 function applyReaderDocumentClasses(
   doc: Document,
   fontSizePx: number,
+  fontFamily: ReaderFontFamily,
   theme: ReaderContentTheme,
   lineSpacing: ReaderLineSpacing,
   margin: ReaderMargin,
@@ -321,6 +328,8 @@ function applyReaderDocumentClasses(
     .filter((className) => className.startsWith("reader-font-"))
     .forEach((className) => root.classList.remove(className));
   root.classList.add(`reader-font-${Math.round(clamp(fontSizePx, MIN_FONT_SIZE, MAX_FONT_SIZE))}`);
+  root.classList.remove("reader-family-literata", "reader-family-serif", "reader-family-sans");
+  root.classList.add(`reader-family-${fontFamily}`);
   root.classList.remove("reader-theme-dark", "reader-theme-light", "reader-theme-sepia");
   root.classList.add(`reader-theme-${theme}`);
   root.classList.remove("reader-line-compact", "reader-line-normal", "reader-line-spacious");

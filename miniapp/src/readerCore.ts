@@ -32,6 +32,7 @@ export type TextReaderController = {
   previousSection: () => Promise<void>;
   nextSection: () => Promise<void>;
   setFontSize: (fontSizePx: number) => void;
+  setFontFamily: (fontFamily: ReaderFontFamily) => void;
   setLineSpacing: (lineSpacing: ReaderLineSpacing) => void;
   setMargin: (margin: ReaderMargin) => void;
   setTheme: (theme: ReaderContentTheme) => void;
@@ -45,6 +46,7 @@ export type TextReaderController = {
 
 export type TextReaderOptions = {
   fontSizePx?: number;
+  fontFamily?: ReaderFontFamily;
   theme?: ReaderContentTheme;
   lineSpacing?: ReaderLineSpacing;
   margin?: ReaderMargin;
@@ -101,6 +103,7 @@ type PlainTextBook = {
 };
 
 export type ReaderContentTheme = "dark" | "light" | "sepia";
+export type ReaderFontFamily = "literata" | "serif" | "sans";
 export type ReaderLineSpacing = "compact" | "normal" | "spacious";
 export type ReaderMargin = "narrow" | "normal" | "wide";
 export type TextRenderMode = "clean" | "original";
@@ -269,6 +272,7 @@ export async function openFoliateReader(
   let destroyed = false;
   let isSwitchingSection = false;
   let fontSizePx = options.fontSizePx ?? 18;
+  let fontFamily: ReaderFontFamily = options.fontFamily ?? "literata";
   let theme: ReaderContentTheme = options.theme ?? "dark";
   let lineSpacing: ReaderLineSpacing = options.lineSpacing ?? "normal";
   let margin: ReaderMargin = options.margin ?? "normal";
@@ -323,6 +327,7 @@ export async function openFoliateReader(
       debouncedSave,
       () => options.onTap?.(),
       fontSizePx,
+      fontFamily,
       theme,
       lineSpacing,
       margin,
@@ -370,6 +375,10 @@ export async function openFoliateReader(
     setFontSize: (nextFontSizePx: number) => {
       fontSizePx = clamp(nextFontSizePx, 15, 26);
       applyIframeFontSize(iframe, fontSizePx);
+    },
+    setFontFamily: (nextFontFamily: ReaderFontFamily) => {
+      fontFamily = nextFontFamily;
+      applyIframeFontFamily(iframe, fontFamily);
     },
     setLineSpacing: (nextLineSpacing: ReaderLineSpacing) => {
       lineSpacing = nextLineSpacing;
@@ -1018,6 +1027,7 @@ async function renderSectionIframe(
   onScroll: () => void,
   onTap: () => void,
   fontSizePx: number,
+  fontFamily: ReaderFontFamily,
   theme: ReaderContentTheme,
   lineSpacing: ReaderLineSpacing,
   margin: ReaderMargin,
@@ -1050,6 +1060,7 @@ async function renderSectionIframe(
   });
   await new Promise((resolve) => window.requestAnimationFrame(resolve));
   applyIframeFontSize(iframe, fontSizePx);
+  applyIframeFontFamily(iframe, fontFamily);
   applyIframeTheme(iframe, theme);
   applyIframeLineSpacing(iframe, lineSpacing);
   applyIframeMargin(iframe, margin);
@@ -1378,13 +1389,7 @@ function setIframeScrollRatio(iframe: HTMLIFrameElement, ratio: number): void {
 function applyIframeFontSize(iframe: HTMLIFrameElement | null, fontSizePx: number): void {
   const doc = iframe?.contentDocument;
   if (!doc) return;
-  if (!doc.querySelector('link[data-reader-content-css="true"]')) {
-    const link = doc.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "/reader-content.css";
-    link.dataset.readerContentCss = "true";
-    (doc.head ?? doc.documentElement).prepend(link);
-  }
+  ensureReaderContentStylesheet(doc);
   const size = Math.round(clamp(fontSizePx, 15, 26));
   const root = doc.documentElement;
   Array.from(root.classList)
@@ -1393,24 +1398,37 @@ function applyIframeFontSize(iframe: HTMLIFrameElement | null, fontSizePx: numbe
   root.classList.add(`reader-font-${size}`);
 }
 
+function applyIframeFontFamily(iframe: HTMLIFrameElement | null, fontFamily: ReaderFontFamily): void {
+  const doc = iframe?.contentDocument;
+  if (!doc) return;
+  ensureReaderContentStylesheet(doc);
+  const root = doc.documentElement;
+  root.classList.remove("reader-family-literata", "reader-family-serif", "reader-family-sans");
+  root.classList.add(`reader-family-${fontFamily}`);
+}
+
 function applyIframeTheme(iframe: HTMLIFrameElement | null, theme: ReaderContentTheme): void {
   const doc = iframe?.contentDocument;
   if (!doc) return;
-  if (!doc.querySelector('link[data-reader-content-css="true"]')) {
-    const link = doc.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "/reader-content.css";
-    link.dataset.readerContentCss = "true";
-    (doc.head ?? doc.documentElement).prepend(link);
-  }
+  ensureReaderContentStylesheet(doc);
   const root = doc.documentElement;
   root.classList.remove("reader-theme-dark", "reader-theme-light", "reader-theme-sepia");
   root.classList.add(`reader-theme-${theme}`);
 }
 
+function ensureReaderContentStylesheet(doc: Document): void {
+  if (doc.querySelector('link[data-reader-content-css="true"]')) return;
+  const link = doc.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "/reader-content.css";
+  link.dataset.readerContentCss = "true";
+  (doc.head ?? doc.documentElement).prepend(link);
+}
+
 function applyIframeLineSpacing(iframe: HTMLIFrameElement | null, lineSpacing: ReaderLineSpacing): void {
   const doc = iframe?.contentDocument;
   if (!doc) return;
+  ensureReaderContentStylesheet(doc);
   const root = doc.documentElement;
   root.classList.remove("reader-line-compact", "reader-line-normal", "reader-line-spacious");
   root.classList.add(`reader-line-${lineSpacing}`);
@@ -1419,6 +1437,7 @@ function applyIframeLineSpacing(iframe: HTMLIFrameElement | null, lineSpacing: R
 function applyIframeMargin(iframe: HTMLIFrameElement | null, margin: ReaderMargin): void {
   const doc = iframe?.contentDocument;
   if (!doc) return;
+  ensureReaderContentStylesheet(doc);
   const root = doc.documentElement;
   root.classList.remove("reader-margin-narrow", "reader-margin-normal", "reader-margin-wide");
   root.classList.add(`reader-margin-${margin}`);

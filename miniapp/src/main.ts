@@ -2,6 +2,7 @@ import {
   BookFileError,
   type PdfReaderController,
   type ReaderContentTheme,
+  type ReaderFontFamily,
   type ReaderLineSpacing,
   type ReaderMargin,
   type TextReaderController,
@@ -113,6 +114,7 @@ let activePdfReader: PdfReaderController | null = null;
 let activeReaderRestoreLocator: string | null = null;
 let readerToolbarVisible = true;
 let readerFontSizePx = readReaderFontSize();
+let readerFontFamily = readReaderFontFamily();
 let readerLineSpacing = readReaderLineSpacing();
 let readerMargin = readReaderMargin();
 let pdfZoom = readPdfZoom();
@@ -1176,6 +1178,14 @@ function renderReaderSettingsSheet(sheet: Extract<SheetState, { kind: "readerSet
                   <button class="secondary reader-font-button" id="readerFontUp" type="button" aria-label="Increase font size">A+</button>
                 </div>
               </div>
+              <div class="reader-setting-row reader-setting-row--stack">
+                <span>Font family</span>
+                <div class="reader-theme-options" role="group" aria-label="Font family">
+                  ${renderReaderSegmentButton("Literata", "reader-family", "literata", readerFontFamily)}
+                  ${renderReaderSegmentButton("Serif", "reader-family", "serif", readerFontFamily)}
+                  ${renderReaderSegmentButton("Sans", "reader-family", "sans", readerFontFamily)}
+                </div>
+              </div>
               ${
                 isV2
                   ? `
@@ -1656,6 +1666,9 @@ function bindSheetControls() {
     document.querySelector("#readerFitWidth")?.addEventListener("click", () => void resetPdfZoom());
     document.querySelector("#readerResetPdfZoom")?.addEventListener("click", () => void resetPdfZoom());
     document.querySelector("#readerResetText")?.addEventListener("click", resetReaderTextSettings);
+    document.querySelectorAll<HTMLElement>("[data-reader-family]").forEach((button) => {
+      button.addEventListener("click", () => setReaderFontFamily(button.dataset.readerFamily as ReaderFontFamily));
+    });
     document.querySelectorAll<HTMLElement>("[data-reader-line]").forEach((button) => {
       button.addEventListener("click", () => setReaderLineSpacing(button.dataset.readerLine as ReaderLineSpacing));
     });
@@ -2056,6 +2069,7 @@ async function renderTextBook(book: Book) {
       (status) => updateReaderControls(status.label, status.canGoPrevious, status.canGoNext, parseReaderPercent(status.label)),
       {
         fontSizePx: readerFontSizePx,
+        fontFamily: readerFontFamily,
         theme: readerTheme,
         lineSpacing: readerLineSpacing,
         margin: readerMargin,
@@ -2327,6 +2341,14 @@ function changeReaderFontSize(delta: number) {
   scheduleReaderSettingsSync();
 }
 
+function setReaderFontFamily(fontFamily: ReaderFontFamily) {
+  if (readerFontFamily !== fontFamily) hapticSelection();
+  readerFontFamily = fontFamily;
+  window.localStorage.setItem("telegram-library-reader-font-family", readerFontFamily);
+  activeTextReader?.setFontFamily(readerFontFamily);
+  scheduleReaderSettingsSync();
+}
+
 function setReaderLineSpacing(lineSpacing: ReaderLineSpacing) {
   if (readerLineSpacing !== lineSpacing) hapticSelection();
   readerLineSpacing = lineSpacing;
@@ -2346,15 +2368,18 @@ function setReaderMargin(margin: ReaderMargin) {
 function resetReaderTextSettings() {
   hapticSelection();
   readerFontSizePx = 18;
+  readerFontFamily = "literata";
   readerLineSpacing = "normal";
   readerMargin = "normal";
   readerTheme = "dark";
   window.localStorage.setItem("telegram-library-reader-font-size", String(readerFontSizePx));
+  window.localStorage.setItem("telegram-library-reader-font-family", readerFontFamily);
   window.localStorage.setItem("telegram-library-reader-line-spacing", readerLineSpacing);
   window.localStorage.setItem("telegram-library-reader-margin", readerMargin);
   window.localStorage.setItem("telegram-library-reader-theme", readerTheme);
   applyReaderTheme();
   activeTextReader?.setFontSize(readerFontSizePx);
+  activeTextReader?.setFontFamily(readerFontFamily);
   activeTextReader?.setLineSpacing(readerLineSpacing);
   activeTextReader?.setMargin(readerMargin);
   activeTextReader?.setTheme(readerTheme);
@@ -2395,6 +2420,7 @@ function syncReaderSettingsSheet() {
   if (fontValue) fontValue.textContent = `${readerFontSizePx}px`;
   const zoomValue = document.querySelector<HTMLElement>("#readerPdfZoomValue");
   if (zoomValue) zoomValue.textContent = `${Math.round(pdfZoom * 100)}%`;
+  syncPressedButtons("[data-reader-family]", readerFontFamily);
   syncPressedButtons("[data-reader-line]", readerLineSpacing);
   syncPressedButtons("[data-reader-margin]", readerMargin);
   syncPressedButtons("[data-reader-theme]", readerTheme);
@@ -2404,7 +2430,7 @@ function syncReaderSettingsSheet() {
 
 function syncPressedButtons(selector: string, activeValue: string) {
   document.querySelectorAll<HTMLButtonElement>(selector).forEach((button) => {
-    const value = button.dataset.readerLine ?? button.dataset.readerMargin ?? button.dataset.readerTheme;
+    const value = button.dataset.readerFamily ?? button.dataset.readerLine ?? button.dataset.readerMargin ?? button.dataset.readerTheme;
     const isActive = value === activeValue;
     button.classList.toggle("active", isActive);
     button.setAttribute("aria-pressed", isActive ? "true" : "false");
@@ -2420,6 +2446,12 @@ function updateReaderFontButtons() {
 
 function readReaderFontSize(): number {
   return clamp(Number(window.localStorage.getItem("telegram-library-reader-font-size")) || 18, 15, 26);
+}
+
+function readReaderFontFamily(): ReaderFontFamily {
+  const stored = window.localStorage.getItem("telegram-library-reader-font-family");
+  if (stored === "serif" || stored === "sans") return stored;
+  return "literata";
 }
 
 function readReaderLineSpacing(): ReaderLineSpacing {

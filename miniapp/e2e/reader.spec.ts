@@ -101,6 +101,7 @@ test.describe("reader e2e", () => {
     await expect(page.locator("#readerBottomProgress")).toBeVisible();
     const frame = await waitForBookFrame(page);
     await expectVisibleText(frame, 400);
+    await expectReaderContentStylesheetLoaded(frame);
     await expect(page.locator("#readerBottomLabel")).toContainText(/Section|%/);
     if (isReaderUiV2) {
       await expect(page.locator("#readerHint")).toContainText("Tap the page for controls. Use Aa to change reading settings.");
@@ -129,6 +130,8 @@ test.describe("reader e2e", () => {
     if (isReaderUiV2) {
       await expect(page.locator("[data-reader-line='spacious']")).toBeVisible();
       await expect(page.locator("[data-reader-margin='wide']")).toBeVisible();
+      await expect(page.locator("[data-reader-family='literata']")).toBeVisible();
+      await expectReaderFontFacesLoaded(frame);
       await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "reader-v2-aa-sheet");
       await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "settings-sheet");
     } else {
@@ -136,6 +139,10 @@ test.describe("reader e2e", () => {
     }
     await page.locator("#readerFontUp").click();
     await expect.poll(() => bodyFontSize(frame)).toBeGreaterThan(before);
+    await page.locator("[data-reader-family='sans']").click();
+    await expect.poll(() => bodyFontFamily(frame)).toContain("Space Grotesk");
+    await page.locator("[data-reader-family='serif']").click();
+    await expect.poll(() => bodyFontFamily(frame)).toContain("Georgia");
     if (isReaderUiV2) {
       await page.locator("[data-reader-line='spacious']").click();
       await page.locator("[data-reader-margin='wide']").click();
@@ -822,6 +829,33 @@ async function expectVisibleText(frame: FrameLocator, threshold: number): Promis
 
 async function bodyFontSize(frame: FrameLocator): Promise<number> {
   return frame.locator("body").evaluate((body) => Number.parseFloat(getComputedStyle(body).fontSize));
+}
+
+async function bodyFontFamily(frame: FrameLocator): Promise<string> {
+  return frame.locator("body").evaluate((body) => getComputedStyle(body).fontFamily);
+}
+
+async function expectReaderContentStylesheetLoaded(frame: FrameLocator): Promise<void> {
+  await expect(frame.locator('link[data-reader-content-css="true"]')).toHaveAttribute("href", /reader-content\.css/);
+  const rules = await frame.locator("body").evaluate(() => {
+    const sheet = Array.from(document.styleSheets).find((candidate) => candidate.href?.includes("reader-content.css"));
+    if (!sheet) return 0;
+    try {
+      return sheet.cssRules.length;
+    } catch {
+      return 0;
+    }
+  });
+  expect(rules).toBeGreaterThan(0);
+}
+
+async function expectReaderFontFacesLoaded(frame: FrameLocator): Promise<void> {
+  const fontFamilies = await frame.locator("body").evaluate(async () => {
+    await document.fonts.ready;
+    return Array.from(document.fonts).map((fontFace) => fontFace.family);
+  });
+  expect(fontFamilies).toContain("Literata");
+  expect(fontFamilies).toContain("Space Grotesk");
 }
 
 async function frameOverflowWidth(frame: FrameLocator): Promise<number> {
