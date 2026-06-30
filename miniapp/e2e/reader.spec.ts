@@ -257,6 +257,47 @@ test.describe("reader e2e", () => {
     await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "reader-settings-after-theme-change");
   });
 
+  test("iOS viewport and form controls avoid safe-area and auto-zoom regressions", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /viewport-fit=cover/);
+
+    await openLibrary(page);
+    await expect(page.locator("#searchInput")).toHaveComputedFontSizeAtLeast(16);
+    const safeAreaRules = await page.evaluate(() => {
+      const styles = Array.from(document.styleSheets)
+        .flatMap((sheet) => {
+          try {
+            return Array.from(sheet.cssRules);
+          } catch {
+            return [];
+          }
+        })
+        .map((rule) => rule.cssText)
+        .join("\n");
+      return {
+        readerStage: /\.reader-stage[\s\S]*env\(safe-area-inset-top/.test(styles),
+        readerBottom: /\.reader-bottom-progress[\s\S]*env\(safe-area-inset-bottom/.test(styles),
+        bottomSheet: /\.bottom-sheet[\s\S]*env\(safe-area-inset-bottom/.test(styles),
+      };
+    });
+    expect(safeAreaRules).toEqual({ readerStage: true, readerBottom: true, bottomSheet: true });
+
+    await page.locator("#folderNav").click();
+    await expect(page.locator("#folderNameInput")).toBeVisible();
+    await expect(page.locator("#folderNameInput")).toHaveComputedFontSizeAtLeast(16);
+    await closeSheet(page);
+
+    await page.evaluate(() => {
+      const wrapper = document.createElement("label");
+      wrapper.className = "folder-form";
+      const textarea = document.createElement("textarea");
+      textarea.id = "iosAutoZoomTextareaProbe";
+      wrapper.append(textarea);
+      document.body.append(wrapper);
+    });
+    await expect(page.locator("#iosAutoZoomTextareaProbe")).toHaveComputedFontSizeAtLeast(16);
+  });
+
   test("FB2 opens, keeps controls readable, and restores section position", async ({ page }) => {
     test.skip(experimentFlags.textReaderEngine === "foliate-view", "Strict restore gate targets the stable custom reader.");
     await resetBookPosition("long_text.fb2", JSON.stringify({ type: "text", sectionIndex: 0, scrollRatio: 0 }), 0);
@@ -1288,12 +1329,20 @@ expect.extend({
       message: () => "expected PDF canvas backing store to match clamped DPR",
     };
   },
+  async toHaveComputedFontSizeAtLeast(locator, minSizePx: number) {
+    const fontSize = await locator.evaluate((element: HTMLElement) => Number.parseFloat(getComputedStyle(element).fontSize));
+    return {
+      pass: Number.isFinite(fontSize) && fontSize >= minSizePx,
+      message: () => `expected computed font-size ${fontSize}px to be at least ${minSizePx}px`,
+    };
+  },
 });
 
 declare global {
   namespace PlaywrightTest {
     interface Matchers<R> {
       toPassCanvasDprCheck(): R;
+      toHaveComputedFontSizeAtLeast(minSizePx: number): R;
     }
   }
 }
