@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     file_cache_dir: Path = Path("./file_cache")
     file_cache_max_bytes: int = 512 * 1024 * 1024
     file_cache_max_age_seconds: int = 60 * 60 * 24 * 14
+    cover_cache_dir: Path | None = None
+    cover_cache_max_bytes: int = 64 * 1024 * 1024
+    cover_image_max_bytes: int = 2 * 1024 * 1024
     initdata_max_age_seconds: int = 60 * 60 * 24
     max_telegram_download_bytes: int = 20 * 1024 * 1024
 
@@ -32,6 +35,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def use_installed_postgres_driver(self) -> "Settings":
         self.database_url = normalize_database_url(self.database_url)
+        if self.cover_cache_dir is None:
+            self.cover_cache_dir = self.file_cache_dir / "covers"
         return self
 
 

@@ -20,6 +20,9 @@ from backend.app.models import Book, Folder, Note, ReadingPosition, User
 from backend.app.services import cache_path
 
 
+PNG_1X1 = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+
+
 BOT_TOKEN = "test-token"
 
 
@@ -94,6 +97,7 @@ def seed_owner_data(client: TestClient) -> dict[str, int]:
             title="A book",
             author="A author",
             format="epub",
+            cover_ref="book-a.png",
             size_bytes=1024,
             too_large=False,
             sort_order=10,
@@ -172,6 +176,39 @@ def test_user_cannot_read_or_move_another_users_book_or_folder(client: TestClien
     assert reorder_other_book.status_code == 404
     assert list_other_folder.status_code == 404
     assert move_to_other_folder.status_code == 404
+
+
+def test_book_out_exposes_cover_url_when_cover_exists(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+
+    response = client.get(f"/api/books/{ids['book_a']}", headers=auth_headers(1001))
+
+    assert response.status_code == 200
+    assert response.json()["cover_url"] == f"/api/books/{ids['book_a']}/cover"
+
+
+def test_cover_endpoint_is_ownership_checked(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+    settings = client.app.dependency_overrides[get_settings]()
+    cover_dir = settings.cover_cache_dir
+    assert cover_dir is not None
+    cover_dir.mkdir(parents=True, exist_ok=True)
+    (cover_dir / "book-a.png").write_bytes(PNG_1X1)
+
+    owner = client.get(f"/api/books/{ids['book_a']}/cover", headers=auth_headers(1001))
+    stranger = client.get(f"/api/books/{ids['book_a']}/cover", headers=auth_headers(2002))
+
+    assert owner.status_code == 200
+    assert owner.headers["content-type"].startswith("image/png")
+    assert stranger.status_code == 404
+
+
+def test_missing_cover_returns_404(client: TestClient) -> None:
+    ids = seed_owner_data(client)
+
+    response = client.get(f"/api/books/{ids['book_a']}/cover", headers=auth_headers(1001))
+
+    assert response.status_code == 404
 
 
 def test_user_can_reorder_own_books_up_and_down(client: TestClient) -> None:

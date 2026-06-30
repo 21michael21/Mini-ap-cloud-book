@@ -17,6 +17,7 @@ type Book = {
   author: string | null;
   format: string;
   cover_ref: string | null;
+  cover_url: string | null;
   size_bytes: number;
   too_large: boolean;
   possible_duplicate: boolean;
@@ -112,6 +113,7 @@ let toastKind: ToastKind = "info";
 let toastTimer = 0;
 let pendingAction: PendingAction = null;
 let positionSaveErrorShown = false;
+let coverObjectUrls: string[] = [];
 
 const PDF_MIN_ZOOM = 0.75;
 const PDF_MAX_ZOOM = 3;
@@ -130,6 +132,10 @@ function headers(): HeadersInit {
 
 function initData(): string {
   return tg?.initData || import.meta.env.VITE_DEV_INIT_DATA || "";
+}
+
+function apiUrl(path: string): string {
+  return new URL(path, API_BASE).toString();
 }
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -547,6 +553,7 @@ function currentBookScopePayload(): { inbox?: boolean; folder_id?: number } {
 }
 
 function render() {
+  revokeCoverObjectUrls();
   if (view === "reader" && activeBook) {
     renderReader(activeBook);
     return;
@@ -843,8 +850,12 @@ function renderBookRow(book: Book, index: number): string {
 }
 
 function renderCover(book: Book, className: string, withProgress = false): string {
+  const image = book.cover_url
+    ? `<img class="cover-image" data-cover-url="${escapeHtml(book.cover_url)}" alt="" loading="lazy" decoding="async" hidden />`
+    : "";
   return `
     <span class="book-cover ${className} tone-${book.id % 5}">
+      ${image}
       <span class="cover-stripes"></span>
       <span class="cover-spine"></span>
       <span class="cover-title">${escapeHtml(book.title)}</span>
@@ -1238,6 +1249,16 @@ function bindShellControls() {
 }
 
 function bindBookButtons() {
+  document.querySelectorAll<HTMLImageElement>(".cover-image").forEach((image) => {
+    image.addEventListener(
+      "error",
+      () => {
+        image.classList.add("cover-image-broken");
+      },
+      { once: true },
+    );
+  });
+  void loadCoverImages();
   document.querySelectorAll<HTMLElement>("[data-open]").forEach((button) => {
     button.addEventListener("click", () => openBookById(Number(button.dataset.open), button.textContent ?? ""));
   });
@@ -1293,6 +1314,32 @@ function bindBookButtons() {
       openBookById(id, "Read");
     });
   });
+}
+
+async function loadCoverImages(): Promise<void> {
+  const images = Array.from(document.querySelectorAll<HTMLImageElement>(".cover-image[data-cover-url]"));
+  await Promise.all(
+    images.map(async (image) => {
+      const path = image.dataset.coverUrl;
+      if (!path) return;
+      try {
+        const response = await fetch(apiUrl(path), { headers: headers() });
+        if (!response.ok) throw new Error(`Cover request failed with HTTP ${response.status}`);
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        coverObjectUrls.push(objectUrl);
+        image.src = objectUrl;
+        image.hidden = false;
+      } catch {
+        image.classList.add("cover-image-broken");
+      }
+    }),
+  );
+}
+
+function revokeCoverObjectUrls(): void {
+  coverObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  coverObjectUrls = [];
 }
 
 function bindLibraryControls() {

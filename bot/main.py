@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from backend.app.config import get_settings
+from backend.app.covers import extract_and_store_cover
 from backend.app.db import SessionLocal
 from backend.app.duplicates import (
     file_sha256,
@@ -82,13 +83,29 @@ async def metadata_for_document(
     try:
         if downloaded_path is not None:
             metadata = extract_metadata(downloaded_path, file_name, fmt)
-            return metadata.title, metadata.author, metadata.cover_ref
+            cover_ref = metadata.cover_ref or extract_and_store_cover(
+                settings,
+                downloaded_path,
+                file_name,
+                fmt,
+                title=metadata.title,
+                author=metadata.author,
+            )
+            return metadata.title, metadata.author, cover_ref
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir) / file_name
             await message.bot.download(message.document, destination=temp_path)
             metadata = extract_metadata(temp_path, file_name, fmt)
-            return metadata.title, metadata.author, metadata.cover_ref
+            cover_ref = metadata.cover_ref or extract_and_store_cover(
+                settings,
+                temp_path,
+                file_name,
+                fmt,
+                title=metadata.title,
+                author=metadata.author,
+            )
+            return metadata.title, metadata.author, cover_ref
     except Exception:
         logger.exception("Could not extract metadata for uploaded document %s", file_name)
         return clean_title_from_filename(file_name), None, None

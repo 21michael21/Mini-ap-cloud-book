@@ -436,8 +436,23 @@ input:focus-visible {
   -webkit-line-clamp: 3;
 }
 
+.cover-image {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+
+.cover-image-broken {
+  display: none;
+}
+
 .cover-progress {
   position: absolute;
+  z-index: 4;
   right: 0;
   bottom: 0;
   left: 0;

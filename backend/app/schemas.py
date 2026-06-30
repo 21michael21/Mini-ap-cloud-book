@@ -28,6 +28,7 @@ class BookOut(BaseModel):
     author: str | None
     format: str
     cover_ref: str | None
+    cover_url: str | None = None
     size_bytes: int
     too_large: bool
     possible_duplicate: bool = False

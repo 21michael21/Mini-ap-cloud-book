@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.auth import current_user
 from backend.app.config import Settings, get_settings
+from backend.app.covers import cleanup_cover_cache, cover_cache_path
 from backend.app.db import get_db
 from backend.app.duplicates import normalize_title
 from backend.app.models import Book, Folder, Note, ReadingPosition, User
@@ -108,6 +109,7 @@ def serialize_book(book: Book) -> BookOut:
         author=book.author,
         format=book.format,
         cover_ref=book.cover_ref,
+        cover_url=f"/api/books/{book.id}/cover" if book.cover_ref else None,
         size_bytes=book.size_bytes,
         too_large=book.too_large,
         possible_duplicate=book.possible_duplicate,
@@ -279,6 +281,7 @@ def delete_book(
 ) -> Response:
     book = owned_book_or_404(db, user, book_id)
     cached_path = cache_path(settings, book)
+    cover_path = cover_cache_path(settings, book.cover_ref) if book.cover_ref else None
     log_event(db, user.id, "book_removed", book.id, {"title": book.title})
     db.flush()
     db.delete(book)
@@ -287,6 +290,11 @@ def delete_book(
         cached_path.unlink(missing_ok=True)
     except OSError:
         logger.exception("Could not delete cached file for removed book_id=%s", book_id)
+    if cover_path is not None:
+        try:
+            cover_path.unlink(missing_ok=True)
+        except OSError:
+            logger.exception("Could not delete cover file for removed book_id=%s", book_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -349,6 +357,25 @@ async def get_book_file(
     log_event(db, user.id, "book_opened", book.id)
     db.commit()
     return FileResponse(path, media_type=book.mime_type or "application/octet-stream", filename=book.file_name)
+
+
+@app.get("/api/books/{book_id}/cover")
+def get_book_cover(
+    book_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+    settings: Settings = Depends(get_settings),
+):
+    book = owned_book_or_404(db, user, book_id)
+    if not book.cover_ref:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cover not found")
+    path = cover_cache_path(settings, book.cover_ref)
+    if path is None or not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cover not found")
+    path.touch()
+    cleanup_cover_cache(settings)
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=media_type)
 
 
 @app.get("/api/folders", response_model=list[FolderOut])

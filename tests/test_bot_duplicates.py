@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import tempfile
+from zipfile import ZIP_DEFLATED, ZipFile
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -80,6 +82,8 @@ def configure_bot_db(bot_main, tmp_path: Path) -> sessionmaker:
         database_url="sqlite+pysqlite:///:memory:",
         webapp_url="https://telegram-library.example.test",
         backend_public_url="https://telegram-library.example.test",
+        file_cache_dir=tmp_path / "file_cache",
+        cover_cache_dir=tmp_path / "covers",
         max_telegram_download_bytes=20,
     )
     return SessionLocal
@@ -153,3 +157,48 @@ def test_possible_duplicate_heuristic_does_not_block_upload(monkeypatch, tmp_pat
     assert first.bot.download_count == 0
     assert second.bot.download_count == 0
     assert "This looks similar to an existing item" in second.answers[-1]
+
+
+def test_upload_attempts_epub_cover_extraction(monkeypatch, tmp_path: Path) -> None:
+    bot_main = load_bot_main(monkeypatch)
+    SessionLocal = configure_bot_db(bot_main, tmp_path)
+    payload = make_epub_with_cover()
+    bot_main.settings.max_telegram_download_bytes = len(payload) + 10
+
+    message = FakeMessage(
+        payload=payload,
+        file_name="covered.epub",
+        file_size=len(payload),
+        file_unique_id="covered-epub",
+        file_id="covered-file",
+    )
+    asyncio.run(bot_main.handle_document(message))
+
+    stored = books(SessionLocal)
+    assert len(stored) == 1
+    assert stored[0].cover_ref is not None
+    assert (bot_main.settings.cover_cache_dir / stored[0].cover_ref).exists()
+
+
+def make_epub_with_cover() -> bytes:
+    epub_path = Path(tempfile.gettempdir()) / "telegram-library-test-cover.epub"
+    png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+    with ZipFile(epub_path, "w", ZIP_DEFLATED) as archive:
+        archive.writestr("mimetype", "application/epub+zip")
+        archive.writestr(
+            "META-INF/container.xml",
+            """<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+              <rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles>
+            </container>""",
+        )
+        archive.writestr(
+            "OEBPS/content.opf",
+            """<package xmlns:dc="http://purl.org/dc/elements/1.1/">
+              <metadata><dc:title>Covered</dc:title></metadata>
+              <manifest><item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/></manifest>
+            </package>""",
+        )
+        archive.writestr("OEBPS/cover.png", png)
+    data = epub_path.read_bytes()
+    epub_path.unlink(missing_ok=True)
+    return data

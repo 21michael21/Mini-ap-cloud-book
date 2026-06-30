@@ -43,6 +43,9 @@ WEBAPP_URL=https://your-miniapp.example.com
 FILE_CACHE_DIR=./file_cache
 FILE_CACHE_MAX_BYTES=536870912
 FILE_CACHE_MAX_AGE_SECONDS=1209600
+COVER_CACHE_DIR=./file_cache/covers
+COVER_CACHE_MAX_BYTES=67108864
+COVER_IMAGE_MAX_BYTES=2097152
 INITDATA_MAX_AGE_SECONDS=86400
 MAX_TELEGRAM_DOWNLOAD_BYTES=20971520
 ```
@@ -221,9 +224,13 @@ For a 10 GB server, keep file cache capped in `.env`:
 ```text
 FILE_CACHE_MAX_BYTES=268435456
 FILE_CACHE_MAX_AGE_SECONDS=1209600
+COVER_CACHE_DIR=./file_cache/covers
+COVER_CACHE_MAX_BYTES=33554432
+COVER_IMAGE_MAX_BYTES=2097152
 ```
 
 Do not increase the cache above `536870912` bytes (512 MB) on this VPS size. The backend already respects `FILE_CACHE_MAX_BYTES` and `FILE_CACHE_MAX_AGE_SECONDS` via the file cache cleanup path, so lower the cap first if disk gets tight.
+Keep cover thumbnails small too: `COVER_CACHE_MAX_BYTES=33554432` (32 MB) is enough for alpha testing, and `COVER_IMAGE_MAX_BYTES=2097152` rejects oversized embedded images.
 
 Rollback note: after safe pruning, the previous Docker image may no longer be available locally. Test `/health` and `/api/version` immediately after deploy. If rollback is needed, deploy the previous Git commit again rather than relying on a local old image.
 
