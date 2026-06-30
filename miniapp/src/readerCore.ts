@@ -60,6 +60,7 @@ export type PdfReaderController = {
   zoomIn: () => Promise<void>;
   setZoom: (zoom: number) => Promise<void>;
   getCurrentPosition: () => Position;
+  destroy: () => void;
 };
 
 export type PdfReaderOptions = {
@@ -334,23 +335,35 @@ export async function openPdfReader(
   canvas.className = "pdf-canvas";
   pageShell.append(canvas);
   container.replaceChildren(pageShell);
+  type RenderedPdfPage = {
+    canvas: HTMLCanvasElement;
+    cssWidth: number;
+    cssHeight: number;
+  };
   let pageNumber = parsePdfPage(restoreLocator, pdf.numPages);
   let requestedPage = pageNumber;
   let zoom = clamp(options.zoom ?? 1, PDF_MIN_ZOOM, PDF_MAX_ZOOM);
   let renderPromise: Promise<void> | null = null;
   let requestedRenderId = 0;
   let completedRenderId = -1;
+  let destroyed = false;
+  const pageCache = new Map<string, RenderedPdfPage>();
 
-  const renderPageNow = async (page: number, renderId: number) => {
+  const renderPageToCanvas = async (page: number): Promise<RenderedPdfPage> => {
     const nextPageNumber = Math.min(Math.max(page, 1), pdf.numPages);
     const pdfPage = await pdf.getPage(nextPageNumber);
     const baseViewport = pdfPage.getViewport({ scale: 1 });
-    const fitWidthScale = (container.clientWidth || window.innerWidth) / baseViewport.width;
+    const containerWidth = Math.max(Math.floor(container.clientWidth || window.innerWidth), 1);
+    const fitWidthScale = containerWidth / baseViewport.width;
     const scale = fitWidthScale * zoom;
     const viewport = pdfPage.getViewport({ scale });
     const dpr = clamp(window.devicePixelRatio || 1, 1, PDF_MAX_DPR);
     const cssWidth = Math.ceil(viewport.width);
     const cssHeight = Math.ceil(viewport.height);
+    const cacheKey = `${nextPageNumber}:${containerWidth}:${zoom.toFixed(2)}:${dpr.toFixed(2)}`;
+    const cached = pageCache.get(cacheKey);
+    if (cached) return cached;
+
     const renderCanvas = document.createElement("canvas");
     renderCanvas.width = Math.ceil(cssWidth * dpr);
     renderCanvas.height = Math.ceil(cssHeight * dpr);
@@ -358,24 +371,60 @@ export async function openPdfReader(
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, cssWidth, cssHeight);
     await pdfPage.render({ canvas: renderCanvas, canvasContext: context, viewport }).promise;
+    const rendered = { canvas: renderCanvas, cssWidth, cssHeight };
+    pageCache.set(cacheKey, rendered);
+    trimPageCache(nextPageNumber);
+    return rendered;
+  };
+
+  const trimPageCache = (currentPage: number) => {
+    for (const [key] of pageCache) {
+      const cachedPage = Number(key.split(":", 1)[0]);
+      if (!Number.isFinite(cachedPage) || Math.abs(cachedPage - currentPage) > 1) pageCache.delete(key);
+    }
+    while (pageCache.size > 3) {
+      const oldestKey = pageCache.keys().next().value as string | undefined;
+      if (!oldestKey) break;
+      pageCache.delete(oldestKey);
+    }
+  };
+
+  const warmAdjacentPages = (currentPage: number) => {
+    for (const nearbyPage of [currentPage - 1, currentPage + 1]) {
+      if (nearbyPage < 1 || nearbyPage > pdf.numPages) continue;
+      window.setTimeout(() => {
+        if (!destroyed && requestedPage === currentPage) {
+          void renderPageToCanvas(nearbyPage).catch((error) => {
+            console.warn("Could not warm PDF page cache", error);
+          });
+        }
+      }, 0);
+    }
+  };
+
+  const renderPageNow = async (page: number, renderId: number) => {
+    const nextPageNumber = Math.min(Math.max(page, 1), pdf.numPages);
+    const rendered = await renderPageToCanvas(nextPageNumber);
     if (renderId !== requestedRenderId) return;
 
     pageNumber = nextPageNumber;
-    canvas.width = renderCanvas.width;
-    canvas.height = renderCanvas.height;
-    canvas.style.width = `${cssWidth}px`;
-    canvas.style.height = `${cssHeight}px`;
+    canvas.width = rendered.canvas.width;
+    canvas.height = rendered.canvas.height;
+    canvas.style.width = `${rendered.cssWidth}px`;
+    canvas.style.height = `${rendered.cssHeight}px`;
     const visibleContext = canvas.getContext("2d")!;
     visibleContext.setTransform(1, 0, 0, 1, 0, 0);
     visibleContext.clearRect(0, 0, canvas.width, canvas.height);
-    visibleContext.drawImage(renderCanvas, 0, 0);
+    visibleContext.drawImage(rendered.canvas, 0, 0);
     completedRenderId = renderId;
+    trimPageCache(pageNumber);
+    warmAdjacentPages(pageNumber);
     onPosition({ locator: String(pageNumber), percent: (pageNumber / pdf.numPages) * 100 });
     onStatus?.(`${pageNumber} / ${pdf.numPages}`);
   };
 
   const renderLatestRequestedPage = async () => {
-    while (completedRenderId !== requestedRenderId) {
+    while (!destroyed && completedRenderId !== requestedRenderId) {
       const pageToRender = requestedPage;
       const renderId = requestedRenderId;
       await renderPageNow(pageToRender, renderId);
@@ -384,6 +433,7 @@ export async function openPdfReader(
   };
 
   const renderPage = async (page: number) => {
+    if (destroyed) return;
     requestedPage = Math.min(Math.max(page, 1), pdf.numPages);
     requestedRenderId += 1;
     renderPromise ??= renderLatestRequestedPage().finally(() => {
@@ -394,6 +444,7 @@ export async function openPdfReader(
 
   const setZoom = async (nextZoom: number) => {
     zoom = clamp(nextZoom, PDF_MIN_ZOOM, PDF_MAX_ZOOM);
+    pageCache.clear();
     options.onZoom?.(zoom);
     await renderPage(requestedPage);
   };
@@ -414,6 +465,13 @@ export async function openPdfReader(
       locator: String(pageNumber),
       percent: (pageNumber / pdf.numPages) * 100,
     }),
+    destroy: () => {
+      destroyed = true;
+      pageCache.clear();
+      canvas.width = 0;
+      canvas.height = 0;
+      void pdf.cleanup();
+    },
   };
 }
 

@@ -367,6 +367,10 @@ default-src 'self'; script-src 'self' https://telegram.org; style-src 'self'; im
 `pdf.js` uses a Vite-bundled same-origin worker asset, so no CDN is needed in
 `script-src` or `worker-src`. CORS is allowlisted to `WEBAPP_URL` and
 `BACKEND_PUBLIC_URL`; wildcard origins are intentionally not used.
+The PDF reader renders pages in-memory with high-DPI canvases and a tiny
+previous/current/next page cache only; it does not write permanent page images.
+TODO: add a selectable PDF.js text layer after validating it can be styled
+without CSP violations in Telegram WebView.
 
 Book HTML is sanitized before rendering and placed in sandboxed iframes with `sandbox="allow-same-origin"` and no `allow-scripts`.
 

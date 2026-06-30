@@ -1782,7 +1782,8 @@ function renderReader(book: Book) {
       <button class="secondary reader-mark-button" id="readerMark" type="button" aria-label="Save bookmark">${icon("bookmark")}</button>
     </div>
     <div class="reader-stage" id="readerStage"></div>
-    <div class="reader-bottom-progress" id="readerBottomProgress">
+    <div class="reader-bottom-progress ${book.format === "pdf" ? "reader-bottom-progress--pdf" : ""}" id="readerBottomProgress">
+      ${book.format === "pdf" ? `<button class="secondary reader-pdf-zoom-button" id="readerPdfZoomOut" type="button" aria-label="Zoom out">&minus;</button>` : ""}
       <button class="secondary reader-nav-button" id="readerPrev" type="button">${icon("arrowLeft")}<span>${book.format === "pdf" ? "Page" : "Section"}</span></button>
       <div class="reader-progress-panel">
         <div class="reader-progress-copy">
@@ -1794,6 +1795,7 @@ function renderReader(book: Book) {
         </span>
       </div>
       <button class="secondary reader-nav-button" id="readerNext" type="button"><span>${book.format === "pdf" ? "Page" : "Section"}</span>${icon("arrowRight")}</button>
+      ${book.format === "pdf" ? `<button class="secondary reader-pdf-zoom-button" id="readerPdfZoomIn" type="button" aria-label="Zoom in">+</button>` : ""}
     </div>
     ${showHint ? `<button class="reader-hint toast-in" id="readerHint" type="button">Tap the screen for controls. Use Aa to change text size.</button>` : ""}
     ${renderToast()}
@@ -1918,7 +1920,7 @@ function bindPdfReaderControls(controller: PdfReaderController) {
   activeTextReader = null;
   activePdfReader = controller;
   activeReaderSave = null;
-  activeReaderDestroy = null;
+  activeReaderDestroy = controller.destroy;
   updateReaderControls(
     `Page ${controller.getPageNumber()} / ${controller.pageCount}`,
     controller.getPageNumber() > 1,
@@ -1927,6 +1929,9 @@ function bindPdfReaderControls(controller: PdfReaderController) {
   );
   document.querySelector("#readerPrev")?.addEventListener("click", () => void controller.previousPage());
   document.querySelector("#readerNext")?.addEventListener("click", () => void controller.nextPage());
+  document.querySelector("#readerPdfZoomOut")?.addEventListener("click", () => void changePdfZoom(-1));
+  document.querySelector("#readerPdfZoomIn")?.addEventListener("click", () => void changePdfZoom(1));
+  updatePdfZoomButtons(controller.getZoom());
 }
 
 function updateReaderControls(label: string, canGoPrevious: boolean, canGoNext: boolean, percent = parseReaderPercent(label)) {
@@ -2138,10 +2143,12 @@ function readReaderFontSize(): number {
 }
 
 function updatePdfZoomButtons(zoom: number) {
-  const down = document.querySelector<HTMLButtonElement>("#readerZoomOut");
-  const up = document.querySelector<HTMLButtonElement>("#readerZoomIn");
-  if (down) down.disabled = zoom <= PDF_MIN_ZOOM;
-  if (up) up.disabled = zoom >= PDF_MAX_ZOOM;
+  document.querySelectorAll<HTMLButtonElement>("#readerZoomOut, #readerPdfZoomOut").forEach((button) => {
+    button.disabled = zoom <= PDF_MIN_ZOOM;
+  });
+  document.querySelectorAll<HTMLButtonElement>("#readerZoomIn, #readerPdfZoomIn").forEach((button) => {
+    button.disabled = zoom >= PDF_MAX_ZOOM;
+  });
 }
 
 function readPdfZoom(): number {

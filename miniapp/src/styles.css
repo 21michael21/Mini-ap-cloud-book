@@ -1779,8 +1779,17 @@ foliate-view {
   box-shadow: 0 -10px 26px rgba(0, 0, 0, 0.16);
 }
 
+.reader-bottom-progress--pdf {
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+}
+
 .reader-nav-button {
   min-width: 48px;
+}
+
+.reader-pdf-zoom-button {
+  min-width: 44px;
+  font-weight: 700;
 }
 
 .reader-nav-button span {

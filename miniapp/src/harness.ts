@@ -23,6 +23,7 @@ type HarnessResult = {
   positionRestored: boolean;
   cleanDom?: boolean;
   highDpiCanvas?: boolean | null;
+  rapidNavigationStable?: boolean | null;
   cspViolations: string[];
   locator: string | null;
   error: string | null;
@@ -188,8 +189,10 @@ async function verifyPdf(book: Book): Promise<HarnessResult> {
     saved = position;
     saveDone = savePosition(book.id, position);
   });
-  await reader.nextPage();
-  await waitFor(() => saved?.locator === String(Math.min(2, reader.pageCount)), 3000);
+  const rapidTargetPage = Math.min(2, reader.pageCount);
+  await Promise.all([reader.nextPage(), reader.nextPage(), reader.previousPage(), reader.nextPage()]);
+  const rapidNavigationStable = reader.getPageNumber() === rapidTargetPage;
+  await waitFor(() => saved?.locator === String(rapidTargetPage), 3000);
   await saveDone;
   const persisted = await getPosition(book.id);
   const restoreStage = document.createElement("div");
@@ -201,9 +204,10 @@ async function verifyPdf(book: Book): Promise<HarnessResult> {
   return {
     format: "pdf",
     rendered: canvasHasInk(restored.canvas) && highDpiCanvas !== false,
-    positionSaved: persisted?.locator === String(Math.min(2, reader.pageCount)),
+    positionSaved: persisted?.locator === String(rapidTargetPage),
     positionRestored: restored.getPageNumber() === Number(persisted?.locator),
     highDpiCanvas,
+    rapidNavigationStable,
     cspViolations: [...cspViolations],
     locator: persisted?.locator ?? null,
     error: null,
