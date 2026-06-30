@@ -89,10 +89,14 @@ test.describe("reader e2e", () => {
     test.skip(experimentFlags.textReaderEngine === "foliate-view", "Strict restore gate targets the stable custom reader.");
     await resetBookPosition("multi_section.epub", JSON.stringify({ type: "text", sectionIndex: 0, scrollRatio: 0 }), 0);
     if (isReaderUiV2) {
-      await page.addInitScript(() => window.localStorage.removeItem("telegram-library-reader-hint-seen"));
+      await page.addInitScript(() => {
+        window.localStorage.removeItem("telegram-library-reader-hint-seen");
+        window.localStorage.removeItem("telegram-library-reader-aa-nudge-count");
+      });
     }
     await openBook(page, books.epub);
     await expect(page.locator("#readerSettingsButton")).toBeVisible();
+    await expect(page.locator("#readerSettingsButton")).toHaveClass(/reader-aa-nudge/);
     await expect(page.locator("#readerMark")).toBeVisible();
     await expect(page.locator("#readerBottomProgress")).toBeVisible();
     const frame = await waitForBookFrame(page);
@@ -309,7 +313,13 @@ test.describe("reader e2e", () => {
 
   test("PDF opens high-DPI, zooms, navigates, and restores page", async ({ page }, testInfo) => {
     await resetBookPosition("small.pdf", "1", 0);
-    await page.addInitScript(() => window.localStorage.setItem("telegram-library-pdf-zoom", "1"));
+    await page.addInitScript(() => {
+      if (!window.localStorage.getItem("telegram-library-e2e-pdf-theme-seeded")) {
+        window.localStorage.setItem("telegram-library-pdf-zoom", "1");
+        window.localStorage.setItem("telegram-library-reader-theme", "light");
+        window.localStorage.setItem("telegram-library-e2e-pdf-theme-seeded", "1");
+      }
+    });
     await openBook(page, books.pdf);
     const canvas = page.locator(".pdf-canvas");
     await expect(canvas).toBeVisible();
@@ -318,6 +328,7 @@ test.describe("reader e2e", () => {
     await expectPdfPageFrameVisible(page);
     await expectPdfFitWidth(page);
     await expectPdfRuntimeBounded(page);
+    await expectPdfTheme(page, "light");
     await expect.poll(() => canvasNonBlankScore(page)).toBeGreaterThan(20);
     await maybeScreenshot(page, testInfo, "pdf-page-frame");
     await maybeScreenshot(page, testInfo, "pdf-loading-page-frame");
@@ -328,6 +339,11 @@ test.describe("reader e2e", () => {
     await openPdfSettings(page);
     await expect(page.locator("#readerZoomIn")).toBeVisible();
     await expect(page.locator("#readerFitWidth")).toBeVisible();
+    await expect(page.locator('[data-reader-theme="dark"]')).toBeVisible();
+    await expect(page.locator('[data-reader-theme="light"]')).toBeVisible();
+    await expect(page.locator('[data-reader-theme="sepia"]')).toBeVisible();
+    await page.locator('[data-reader-theme="sepia"]').click();
+    await expectPdfTheme(page, "sepia");
     await page.locator("#readerZoomIn").click();
     await page.locator("#readerZoomIn").click();
     await page.locator("#readerZoomOut").click();
@@ -335,6 +351,7 @@ test.describe("reader e2e", () => {
     await expect(page.locator("#readerBottomLabel")).toContainText(/1 \/ 2/);
     await expect.poll(() => canvasCssWidth(page)).toBeGreaterThan(widthBefore);
     await expectPdfRuntimeBounded(page);
+    await expectPdfTheme(page, "sepia");
     await maybeScreenshot(page, testInfo, "pdf-zoomed");
 
     await openPdfSettings(page);
@@ -355,11 +372,16 @@ test.describe("reader e2e", () => {
     await expect(page.locator("#readerBottomLabel")).toContainText(/2 \/ 2/);
     await expectPdfRuntimeBounded(page);
     await expectPdfNormalPageDidNotRetry(page);
+    await page.locator("#readerStage").click({ position: { x: 160, y: 320 } });
+    await expect(page.locator("#readerToolbar")).toHaveClass(/is-hidden/);
+    await page.locator("#readerStage").click({ position: { x: 160, y: 320 } });
+    await expect(page.locator("#readerSettingsButton")).toBeVisible();
     await maybeScreenshot(page, testInfo, "pdf-reader");
 
     await leaveReader(page);
     await openBook(page, books.pdf);
     await expect(page.locator("#readerBottomLabel")).toContainText(/2 \/ 2/);
+    await expectPdfTheme(page, "sepia");
   });
 
   test("scanned-like PDF renders nonblank at fit width", async ({ page }, testInfo) => {
@@ -965,6 +987,13 @@ async function expectPdfRuntimeBounded(page: Page): Promise<void> {
   expect(stats.warmTimers).toBeLessThanOrEqual(2);
   expect(stats.renderDpr).toBeGreaterThanOrEqual(1);
   expect(stats.renderDpr).toBeLessThanOrEqual(1.75);
+}
+
+async function expectPdfTheme(page: Page, theme: "dark" | "light" | "sepia"): Promise<void> {
+  await expect(page.locator(".pdf-canvas")).toHaveAttribute("data-pdf-theme", theme);
+  const filter = await page.locator(".pdf-canvas").evaluate((canvasElement: HTMLCanvasElement) => getComputedStyle(canvasElement).filter);
+  if (theme === "light") expect(filter).toBe("none");
+  else expect(filter).not.toBe("none");
 }
 
 async function expectPdfEvictedCanvases(page: Page): Promise<void> {

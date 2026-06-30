@@ -75,6 +75,7 @@ type ToastKind = "info" | "success" | "error";
 
 const PDF_MIN_ZOOM = 0.75;
 const PDF_MAX_ZOOM = 3;
+const READER_AA_NUDGE_MAX = 3;
 
 class ApiError extends Error {
   constructor(
@@ -1157,6 +1158,14 @@ function renderReaderSettingsSheet(sheet: Extract<SheetState, { kind: "readerSet
               </div>
               <button class="ghost-button reader-fit-reset" type="button" id="readerFitWidth">Fit width</button>
               ${isV2 ? `<button class="ghost-button reader-fit-reset" type="button" id="readerResetPdfZoom">Reset zoom</button>` : ""}
+              <div class="reader-setting-row reader-setting-row--stack">
+                <span>Theme</span>
+                <div class="reader-theme-options" role="group" aria-label="PDF reader theme">
+                  ${renderReaderThemeButton("Dark", "dark")}
+                  ${renderReaderThemeButton("Light", "light")}
+                  ${renderReaderThemeButton("Sepia", "sepia")}
+                </div>
+              </div>
             `
             : `
               <div class="reader-setting-row">
@@ -1954,6 +1963,8 @@ function renderReader(book: Book) {
   activePdfReader = null;
   const showHint = shouldShowReaderHint();
   if (showHint) markReaderHintSeen();
+  const showAaNudge = shouldShowReaderSettingsNudge();
+  if (showAaNudge) markReaderSettingsNudgeShown();
   const isV2 = isReaderUiV2();
   appEl.className = `reader ${isV2 ? "reader-v2" : "reader-v1"}`;
   applyReaderTheme();
@@ -1964,7 +1975,7 @@ function renderReader(book: Book) {
         <strong>${escapeHtml(shortReaderTitle(book.title))}</strong>
         ${isV2 ? "" : `<span class="reader-progress" id="readerProgress">${escapeHtml(readerStatusLabel)}</span>`}
       </div>
-      <button class="secondary reader-aa-button" id="readerSettingsButton" type="button" aria-label="Reader settings">Aa</button>
+      <button class="secondary reader-aa-button ${showAaNudge ? "reader-aa-nudge" : ""}" id="readerSettingsButton" type="button" aria-label="Reader settings">Aa</button>
       <button class="secondary reader-mark-button" id="readerMark" type="button" aria-label="Save bookmark">${icon("bookmark")}${isV2 ? "<span>Mark</span>" : ""}</button>
     </div>
     <div class="reader-stage" id="readerStage"></div>
@@ -1992,6 +2003,8 @@ function renderReader(book: Book) {
   });
   document.querySelector("#readerSettingsButton")?.addEventListener("click", () => {
     hapticImpact();
+    showReaderToolbar();
+    document.querySelector("#readerSettingsButton")?.classList.remove("reader-aa-nudge");
     presentSheet({ kind: "readerSettings", book });
   });
   document.querySelector("#readerHint")?.addEventListener("click", dismissReaderHint);
@@ -2085,6 +2098,7 @@ async function renderPdf(book: Book) {
         ),
       {
         zoom: pdfZoom,
+        theme: readerTheme,
         onZoom: (zoom) => {
           pdfZoom = zoom;
           window.localStorage.setItem("telegram-library-pdf-zoom", String(pdfZoom));
@@ -2113,6 +2127,7 @@ function bindPdfReaderControls(controller: PdfReaderController) {
   activePdfReader = controller;
   activeReaderSave = null;
   activeReaderDestroy = controller.destroy;
+  controller.setTheme(readerTheme);
   updateReaderControls(
     formatPdfReaderLabel(`${controller.getPageNumber()} / ${controller.pageCount}`, controller.getPageNumber(), controller.pageCount),
     controller.getPageNumber() > 1,
@@ -2267,6 +2282,7 @@ function setReaderTheme(theme: ReaderContentTheme) {
   window.localStorage.setItem("telegram-library-reader-theme", readerTheme);
   applyReaderTheme();
   activeTextReader?.setTheme(readerTheme);
+  activePdfReader?.setTheme(readerTheme);
   scheduleReaderSettingsSync();
 }
 
@@ -2341,6 +2357,7 @@ function resetReaderTextSettings() {
   activeTextReader?.setLineSpacing(readerLineSpacing);
   activeTextReader?.setMargin(readerMargin);
   activeTextReader?.setTheme(readerTheme);
+  activePdfReader?.setTheme(readerTheme);
   scheduleReaderSettingsSync();
 }
 
@@ -2463,6 +2480,18 @@ function formatPdfReaderLabel(label: string, page: number, pageCount: number): s
 
 function shouldShowReaderHint(): boolean {
   return window.localStorage.getItem("telegram-library-reader-hint-seen") !== "1";
+}
+
+function shouldShowReaderSettingsNudge(): boolean {
+  return Number(window.localStorage.getItem("telegram-library-reader-aa-nudge-count") ?? "0") < READER_AA_NUDGE_MAX;
+}
+
+function markReaderSettingsNudgeShown() {
+  const nextCount = Math.min(
+    READER_AA_NUDGE_MAX,
+    Number(window.localStorage.getItem("telegram-library-reader-aa-nudge-count") ?? "0") + 1,
+  );
+  window.localStorage.setItem("telegram-library-reader-aa-nudge-count", String(nextCount));
 }
 
 function markReaderHintSeen() {

@@ -64,12 +64,14 @@ export type PdfReaderController = {
   zoomOut: () => Promise<void>;
   zoomIn: () => Promise<void>;
   setZoom: (zoom: number) => Promise<void>;
+  setTheme: (theme: ReaderContentTheme) => void;
   getCurrentPosition: () => Position;
   destroy: () => void;
 };
 
 export type PdfReaderOptions = {
   zoom?: number;
+  theme?: ReaderContentTheme;
   onZoom?: (zoom: number) => void;
 };
 
@@ -407,6 +409,7 @@ export async function openPdfReader(
   pageShell.setAttribute("aria-live", "polite");
   const canvas = document.createElement("canvas");
   canvas.className = "pdf-canvas";
+  applyPdfCanvasTheme(canvas, options.theme ?? "dark");
   const blankLabel = document.createElement("div");
   blankLabel.className = "pdf-blank-label";
   blankLabel.textContent = "This page appears blank";
@@ -680,6 +683,7 @@ export async function openPdfReader(
     zoomOut: () => setZoom(zoom - PDF_ZOOM_STEP),
     zoomIn: () => setZoom(zoom + PDF_ZOOM_STEP),
     setZoom,
+    setTheme: (theme) => applyPdfCanvasTheme(canvas, theme),
     getCurrentPosition: () => ({
       locator: String(pageNumber),
       percent: (pageNumber / pdf.numPages) * 100,
@@ -696,6 +700,10 @@ export async function openPdfReader(
       void pdf.cleanup();
     },
   };
+}
+
+function applyPdfCanvasTheme(canvas: HTMLCanvasElement, theme: ReaderContentTheme): void {
+  canvas.dataset.pdfTheme = theme;
 }
 
 function pdfRenderDpr(zoom: number): number {

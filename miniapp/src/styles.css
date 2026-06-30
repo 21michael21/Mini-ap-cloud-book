@@ -1971,6 +1971,21 @@ body:not(.reader-light):not(.reader-sepia) .reader {
   font-weight: 700;
 }
 
+.reader-aa-nudge {
+  position: relative;
+  animation: aaNudge 1.5s var(--ease-out) 3;
+}
+
+.reader-aa-nudge::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 1px solid color-mix(in srgb, var(--accent) 68%, transparent);
+  border-radius: inherit;
+  pointer-events: none;
+  animation: aaNudgeRing 1.5s var(--ease-out) 3;
+}
+
 .reader-v2 .reader-mark-button {
   gap: 5px;
 }
@@ -2282,7 +2297,20 @@ body.reader-sepia .reader-settings-sheet .sort-button.active {
     0 2px 8px rgba(0, 0, 0, 0.18);
   transition:
     opacity var(--motion-normal) var(--ease-out),
-    box-shadow var(--motion-normal) var(--ease-out);
+    box-shadow var(--motion-normal) var(--ease-out),
+    filter var(--motion-normal) var(--ease-out);
+}
+
+.pdf-canvas[data-pdf-theme="dark"] {
+  filter: invert(1) hue-rotate(180deg) brightness(0.86) contrast(0.92);
+}
+
+.pdf-canvas[data-pdf-theme="light"] {
+  filter: none;
+}
+
+.pdf-canvas[data-pdf-theme="sepia"] {
+  filter: sepia(0.36) saturate(0.86) brightness(0.94) contrast(0.96);
 }
 
 body.reader-light .pdf-canvas {
@@ -2478,6 +2506,27 @@ body.reader-sepia .pdf-canvas {
   }
 }
 
+@keyframes aaNudge {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.04);
+  }
+}
+
+@keyframes aaNudgeRing {
+  0% {
+    opacity: 0.58;
+    transform: scale(0.92);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.2);
+  }
+}
+
 @media (min-width: 560px) {
   .screen {
     width: min(420px, 100%);
@@ -2498,6 +2547,8 @@ body.reader-sepia .pdf-canvas {
   .card-in,
   .sheet-up,
   .skel,
+  .reader-aa-nudge,
+  .reader-aa-nudge::after,
   .pulse-ring,
   .arrow-bob,
   .empty-orbit__pulse {
