@@ -169,7 +169,7 @@ Server layout:
 
 Backend and bot use the same Docker image. The backend joins the existing `interview-base_default` Docker network so the existing Caddy container can reverse proxy to `telegram-library-backend:8000`.
 
-### Safe VDS Deploy On Small Disk
+### Safe VDS deploy on 10 GB disk
 
 The current VDS has about 10 GB of disk. Treat disk as a deployment risk: Docker builds, dangling images, build cache, JSON logs, and downloaded book files can fill the server.
 
@@ -214,9 +214,10 @@ For a 10 GB server, keep file cache capped in `.env`:
 
 ```text
 FILE_CACHE_MAX_BYTES=268435456
+FILE_CACHE_MAX_AGE_SECONDS=1209600
 ```
 
-`536870912` is the recommended maximum for this VPS size. The backend already respects `FILE_CACHE_MAX_BYTES` via the file cache cleanup path, so do not increase it casually.
+Do not increase the cache above `536870912` bytes (512 MB) on this VPS size. The backend already respects `FILE_CACHE_MAX_BYTES` and `FILE_CACHE_MAX_AGE_SECONDS` via the file cache cleanup path, so lower the cap first if disk gets tight.
 
 Rollback note: after safe pruning, the previous Docker image may no longer be available locally. Test `/health` and `/api/version` immediately after deploy. If rollback is needed, deploy the previous Git commit again rather than relying on a local old image.
 
