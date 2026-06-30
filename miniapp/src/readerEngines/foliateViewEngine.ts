@@ -2,6 +2,8 @@ import "foliate-js/view.js";
 import type {
   Position,
   ReaderContentTheme,
+  ReaderLineSpacing,
+  ReaderMargin,
   TextReaderController,
   TextReaderOptions,
   TextReaderStatus,
@@ -84,6 +86,8 @@ export async function openFoliateViewReader(
   let navigating = false;
   let fontSizePx = clamp(options.fontSizePx ?? 18, MIN_FONT_SIZE, MAX_FONT_SIZE);
   let theme: ReaderContentTheme = options.theme ?? "dark";
+  let lineSpacing: ReaderLineSpacing = options.lineSpacing ?? "normal";
+  let margin: ReaderMargin = options.margin ?? "normal";
   let latestLocation: FoliateLocation | null = null;
   let latestPosition: Position = { locator: makeFoliateLocator(null, 0), percent: 0 };
   const loadedDocs = new Set<Document>();
@@ -91,7 +95,7 @@ export async function openFoliateViewReader(
   const restored = parseFoliateViewLocator(restoreLocator);
 
   const applyToLoadedDocs = () => {
-    for (const doc of loadedDocs) applyReaderDocumentClasses(doc, fontSizePx, theme);
+    for (const doc of loadedDocs) applyReaderDocumentClasses(doc, fontSizePx, theme, lineSpacing, margin);
   };
 
   const emitStatus = () => {
@@ -111,7 +115,7 @@ export async function openFoliateViewReader(
     const doc = detail?.doc;
     if (!doc) return;
     loadedDocs.add(doc);
-    applyReaderDocumentClasses(doc, fontSizePx, theme);
+    applyReaderDocumentClasses(doc, fontSizePx, theme, lineSpacing, margin);
     doc.addEventListener("pointerup", handleDocumentPointerUp);
     onVisibleText?.(doc.body?.innerText?.trim() ?? "");
   };
@@ -205,6 +209,14 @@ export async function openFoliateViewReader(
       fontSizePx = clamp(nextFontSizePx, MIN_FONT_SIZE, MAX_FONT_SIZE);
       applyToLoadedDocs();
     },
+    setLineSpacing: (nextLineSpacing: ReaderLineSpacing) => {
+      lineSpacing = nextLineSpacing;
+      applyToLoadedDocs();
+    },
+    setMargin: (nextMargin: ReaderMargin) => {
+      margin = nextMargin;
+      applyToLoadedDocs();
+    },
     setTheme: (nextTheme: ReaderContentTheme) => {
       theme = nextTheme;
       applyToLoadedDocs();
@@ -290,7 +302,13 @@ async function makePlainTextBook(file: File): Promise<PlainTextBook> {
   };
 }
 
-function applyReaderDocumentClasses(doc: Document, fontSizePx: number, theme: ReaderContentTheme): void {
+function applyReaderDocumentClasses(
+  doc: Document,
+  fontSizePx: number,
+  theme: ReaderContentTheme,
+  lineSpacing: ReaderLineSpacing,
+  margin: ReaderMargin,
+): void {
   if (!doc.querySelector('link[data-reader-content-css="true"]')) {
     const link = doc.createElement("link");
     link.rel = "stylesheet";
@@ -305,6 +323,10 @@ function applyReaderDocumentClasses(doc: Document, fontSizePx: number, theme: Re
   root.classList.add(`reader-font-${Math.round(clamp(fontSizePx, MIN_FONT_SIZE, MAX_FONT_SIZE))}`);
   root.classList.remove("reader-theme-dark", "reader-theme-light", "reader-theme-sepia");
   root.classList.add(`reader-theme-${theme}`);
+  root.classList.remove("reader-line-compact", "reader-line-normal", "reader-line-spacious");
+  root.classList.add(`reader-line-${lineSpacing}`);
+  root.classList.remove("reader-margin-narrow", "reader-margin-normal", "reader-margin-wide");
+  root.classList.add(`reader-margin-${margin}`);
 }
 
 function escapeHtml(value: string): string {

@@ -33,6 +33,13 @@ cd miniapp
 npm run e2e:reader:custom
 ```
 
+Run the Reader UI v2 experiment on the stable custom engine:
+
+```bash
+cd miniapp
+npm run e2e:reader:v2
+```
+
 Run the foliate-view experiment:
 
 ```bash

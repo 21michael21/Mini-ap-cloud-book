@@ -32,6 +32,8 @@ export type TextReaderController = {
   previousSection: () => Promise<void>;
   nextSection: () => Promise<void>;
   setFontSize: (fontSizePx: number) => void;
+  setLineSpacing: (lineSpacing: ReaderLineSpacing) => void;
+  setMargin: (margin: ReaderMargin) => void;
   setTheme: (theme: ReaderContentTheme) => void;
   saveNow: () => void;
   getCurrentPosition: () => Position;
@@ -44,6 +46,8 @@ export type TextReaderController = {
 export type TextReaderOptions = {
   fontSizePx?: number;
   theme?: ReaderContentTheme;
+  lineSpacing?: ReaderLineSpacing;
+  margin?: ReaderMargin;
   renderMode?: TextRenderMode;
   onTap?: () => void;
   onNearTop?: () => void;
@@ -95,6 +99,8 @@ type PlainTextBook = {
 };
 
 export type ReaderContentTheme = "dark" | "light" | "sepia";
+export type ReaderLineSpacing = "compact" | "normal" | "spacious";
+export type ReaderMargin = "narrow" | "normal" | "wide";
 export type TextRenderMode = "clean" | "original";
 
 type FoliateBook = PlainTextBook & {
@@ -211,6 +217,8 @@ export async function openFoliateReader(
   let isSwitchingSection = false;
   let fontSizePx = options.fontSizePx ?? 18;
   let theme: ReaderContentTheme = options.theme ?? "dark";
+  let lineSpacing: ReaderLineSpacing = options.lineSpacing ?? "normal";
+  let margin: ReaderMargin = options.margin ?? "normal";
   const renderMode: TextRenderMode = options.renderMode ?? "clean";
 
   const currentPosition = (): Position => {
@@ -263,6 +271,8 @@ export async function openFoliateReader(
       () => options.onTap?.(),
       fontSizePx,
       theme,
+      lineSpacing,
+      margin,
       renderMode,
     );
     const renderedText = iframe.contentDocument?.body?.innerText?.trim() || `${EMPTY_SECTION_TITLE} ${EMPTY_SECTION_HINT}`;
@@ -305,6 +315,14 @@ export async function openFoliateReader(
     setFontSize: (nextFontSizePx: number) => {
       fontSizePx = clamp(nextFontSizePx, 15, 26);
       applyIframeFontSize(iframe, fontSizePx);
+    },
+    setLineSpacing: (nextLineSpacing: ReaderLineSpacing) => {
+      lineSpacing = nextLineSpacing;
+      applyIframeLineSpacing(iframe, lineSpacing);
+    },
+    setMargin: (nextMargin: ReaderMargin) => {
+      margin = nextMargin;
+      applyIframeMargin(iframe, margin);
     },
     setTheme: (nextTheme: ReaderContentTheme) => {
       theme = nextTheme;
@@ -613,6 +631,8 @@ async function renderSectionIframe(
   onTap: () => void,
   fontSizePx: number,
   theme: ReaderContentTheme,
+  lineSpacing: ReaderLineSpacing,
+  margin: ReaderMargin,
   renderMode: TextRenderMode,
 ): Promise<HTMLIFrameElement> {
   const { src, srcdoc } = await makeSafeSectionUrl(section, renderMode);
@@ -643,6 +663,8 @@ async function renderSectionIframe(
   await new Promise((resolve) => window.requestAnimationFrame(resolve));
   applyIframeFontSize(iframe, fontSizePx);
   applyIframeTheme(iframe, theme);
+  applyIframeLineSpacing(iframe, lineSpacing);
+  applyIframeMargin(iframe, margin);
   setIframeScrollRatio(iframe, restoreScrollRatio);
   iframe.contentWindow?.addEventListener("scroll", onScroll, { passive: true });
   iframe.contentDocument?.addEventListener("pointerup", (event) => {
@@ -955,6 +977,22 @@ function applyIframeTheme(iframe: HTMLIFrameElement | null, theme: ReaderContent
   const root = doc.documentElement;
   root.classList.remove("reader-theme-dark", "reader-theme-light", "reader-theme-sepia");
   root.classList.add(`reader-theme-${theme}`);
+}
+
+function applyIframeLineSpacing(iframe: HTMLIFrameElement | null, lineSpacing: ReaderLineSpacing): void {
+  const doc = iframe?.contentDocument;
+  if (!doc) return;
+  const root = doc.documentElement;
+  root.classList.remove("reader-line-compact", "reader-line-normal", "reader-line-spacious");
+  root.classList.add(`reader-line-${lineSpacing}`);
+}
+
+function applyIframeMargin(iframe: HTMLIFrameElement | null, margin: ReaderMargin): void {
+  const doc = iframe?.contentDocument;
+  if (!doc) return;
+  const root = doc.documentElement;
+  root.classList.remove("reader-margin-narrow", "reader-margin-normal", "reader-margin-wide");
+  root.classList.add(`reader-margin-${margin}`);
 }
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {

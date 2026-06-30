@@ -11,6 +11,7 @@ const experimentFlags = parseExperimentFlags();
 const reportScreenshotDir = reportPath ? resolve(dirname(reportPath), "screenshots", process.env.READER_E2E_RUN_NAME ?? "reader") : "";
 const envPayload = readSeedEnv();
 const experimentRecords: ExperimentRecord[] = [];
+const isReaderUiV2 = experimentFlags.readerUi === "v2";
 
 const books = {
   simple: "Reader E2E Simple EPUB",
@@ -84,31 +85,61 @@ test.describe("reader e2e", () => {
   test("EPUB opens, changes font, saves progress, and restores position", async ({ page }, testInfo) => {
     test.skip(experimentFlags.textReaderEngine === "foliate-view", "Strict restore gate targets the stable custom reader.");
     await resetBookPosition("multi_section.epub", JSON.stringify({ type: "text", sectionIndex: 0, scrollRatio: 0 }), 0);
+    if (isReaderUiV2) {
+      await page.addInitScript(() => window.localStorage.removeItem("telegram-library-reader-hint-seen"));
+    }
     await openBook(page, books.epub);
     await expect(page.locator("#readerSettingsButton")).toBeVisible();
+    await expect(page.locator("#readerMark")).toBeVisible();
     await expect(page.locator("#readerBottomProgress")).toBeVisible();
     const frame = await waitForBookFrame(page);
     await expectVisibleText(frame, 400);
     await expect(page.locator("#readerBottomLabel")).toContainText(/Section|%/);
-    await maybeScreenshot(page, testInfo, "text-controls-visible");
+    if (isReaderUiV2) {
+      await expect(page.locator("#readerHint")).toContainText("Tap the page for controls. Use Aa to change reading settings.");
+      await maybeScreenshot(page, testInfo, "reader-v2-text-controls");
+    } else {
+      await maybeScreenshot(page, testInfo, "text-controls-visible");
+    }
     await page.locator("#readerStage").click({ position: { x: 320, y: 360 } }).catch(() => undefined);
     await page.waitForTimeout(200);
-    await maybeScreenshot(page, testInfo, "text-controls-hidden");
+    await expect(page.locator("#readerBottomProgress")).toBeVisible();
+    if (isReaderUiV2) {
+      await expect(page.locator("#readerToolbar")).toHaveClass(/is-hidden/);
+      await maybeScreenshot(page, testInfo, "reader-v2-text-hidden-controls");
+    } else {
+      await maybeScreenshot(page, testInfo, "text-controls-hidden");
+    }
     await page.locator("#readerStage").click({ position: { x: 320, y: 360 } }).catch(() => undefined);
     await expect(page.locator("#readerSettingsButton")).toBeVisible();
 
     const before = await bodyFontSize(frame);
     await page.locator("#readerSettingsButton").click();
     await expect(page.locator(".reader-settings-sheet")).toBeVisible();
-    await maybeScreenshot(page, testInfo, "text-aa-settings-sheet");
+    if (isReaderUiV2) {
+      await expect(page.locator("[data-reader-line='spacious']")).toBeVisible();
+      await expect(page.locator("[data-reader-margin='wide']")).toBeVisible();
+      await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "reader-v2-aa-sheet");
+    } else {
+      await maybeScreenshot(page, testInfo, "text-aa-settings-sheet");
+    }
     await page.locator("#readerFontUp").click();
     await expect.poll(() => bodyFontSize(frame)).toBeGreaterThan(before);
+    if (isReaderUiV2) {
+      await page.locator("[data-reader-line='spacious']").click();
+      await page.locator("[data-reader-margin='wide']").click();
+    }
     await page.locator('[data-reader-theme="sepia"]').click();
     await expectReadableButton(page.locator("#readerSettingsButton"));
     await closeSheet(page);
     if (await page.locator("#readerMark").isVisible().catch(() => false)) {
       await page.locator("#readerMark").click();
-      await maybeScreenshotIfVisible(page, testInfo, ".bottom-sheet", "notes-sheet");
+      if (isReaderUiV2) {
+        await expect(page.locator(".bottom-sheet")).toBeVisible();
+        await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "reader-v2-note-sheet");
+      } else {
+        await maybeScreenshotIfVisible(page, testInfo, ".bottom-sheet", "notes-sheet");
+      }
       await closeSheet(page);
     }
 
@@ -170,12 +201,21 @@ test.describe("reader e2e", () => {
     const canvas = page.locator(".pdf-canvas");
     await expect(canvas).toBeVisible();
     await expect(page.locator("#readerBottomLabel")).toContainText(/1 \/ 2/);
-    await expect(page.locator("#readerPdfZoomIn")).toBeVisible();
     await expect(canvas).toPassCanvasDprCheck();
-    await maybeScreenshot(page, testInfo, "pdf-fit-width");
+    await maybeScreenshot(page, testInfo, isReaderUiV2 ? "reader-v2-pdf" : "pdf-fit-width");
 
     const widthBefore = await canvasCssWidth(page);
-    await page.locator("#readerPdfZoomIn").click();
+    if (isReaderUiV2) {
+      await page.locator("#readerSettingsButton").click();
+      await expect(page.locator("#readerZoomIn")).toBeVisible();
+      await expect(page.locator("#readerFitWidth")).toBeVisible();
+      await page.locator("#readerZoomIn").click();
+      await closeSheet(page);
+      await expect(page.locator("#readerBottomLabel")).toContainText(/Page 1 \/ 2 · \d+%/);
+    } else {
+      await expect(page.locator("#readerPdfZoomIn")).toBeVisible();
+      await page.locator("#readerPdfZoomIn").click();
+    }
     await expect.poll(() => canvasCssWidth(page)).toBeGreaterThan(widthBefore);
     await maybeScreenshot(page, testInfo, "pdf-zoomed");
     await page.locator("#readerNext").click();
@@ -435,6 +475,22 @@ async function maybeScreenshotIfVisible(
   if (!saveScreenshots) return;
   if (!(await page.locator(selector).isVisible().catch(() => false))) return;
   await maybeScreenshot(page, testInfo, name);
+}
+
+async function maybeScreenshotElementIfVisible(
+  page: Page,
+  testInfo: { project: { name: string } },
+  selector: string,
+  name: string,
+): Promise<void> {
+  if (!saveScreenshots) return;
+  const element = page.locator(selector).first();
+  if (!(await element.isVisible().catch(() => false))) return;
+  await page.waitForTimeout(300);
+  mkdirSync(screenshotDir, { recursive: true });
+  await element.screenshot({
+    path: resolve(screenshotDir, `${testInfo.project.name}-${name}.png`),
+  });
 }
 
 async function saveExperimentScreenshot(
