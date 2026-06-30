@@ -2310,6 +2310,7 @@ function showReaderToolbar() {
 
 function updateReaderToolbarVisibility() {
   document.querySelector<HTMLElement>("#readerToolbar")?.classList.toggle("is-hidden", !readerToolbarVisible);
+  document.querySelector<HTMLElement>("#readerBottomProgress")?.classList.toggle("is-hidden", !readerToolbarVisible);
 }
 
 function isReaderUiV2(): boolean {

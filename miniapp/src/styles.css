@@ -2087,6 +2087,12 @@ foliate-view {
   transform: translateZ(0);
 }
 
+.reader-bottom-progress.is-hidden {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(calc(100% + 16px));
+}
+
 .reader-bottom-progress--v2 {
   right: 8px;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);

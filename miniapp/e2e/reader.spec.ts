@@ -111,14 +111,16 @@ test.describe("reader e2e", () => {
     }
     await page.locator("#readerStage").click({ position: { x: 320, y: 360 } }).catch(() => undefined);
     await page.waitForTimeout(200);
-    await expect(page.locator("#readerBottomProgress")).toBeVisible();
+    await expect(page.locator("#readerToolbar")).toHaveClass(/is-hidden/);
+    await expect(page.locator("#readerBottomProgress")).toHaveClass(/is-hidden/);
     if (isReaderUiV2) {
-      await expect(page.locator("#readerToolbar")).toHaveClass(/is-hidden/);
       await maybeScreenshot(page, testInfo, "reader-v2-text-hidden-controls");
     } else {
       await maybeScreenshot(page, testInfo, "text-controls-hidden");
     }
     await page.locator("#readerStage").click({ position: { x: 320, y: 360 } }).catch(() => undefined);
+    await expect(page.locator("#readerToolbar")).not.toHaveClass(/is-hidden/);
+    await expect(page.locator("#readerBottomProgress")).not.toHaveClass(/is-hidden/);
     await expect(page.locator("#readerSettingsButton")).toBeVisible();
 
     const before = await bodyFontSize(frame);
@@ -415,7 +417,10 @@ test.describe("reader e2e", () => {
     await expectPdfNormalPageDidNotRetry(page);
     await page.locator("#readerStage").click({ position: { x: 160, y: 320 } });
     await expect(page.locator("#readerToolbar")).toHaveClass(/is-hidden/);
+    await expect(page.locator("#readerBottomProgress")).toHaveClass(/is-hidden/);
     await page.locator("#readerStage").click({ position: { x: 160, y: 320 } });
+    await expect(page.locator("#readerToolbar")).not.toHaveClass(/is-hidden/);
+    await expect(page.locator("#readerBottomProgress")).not.toHaveClass(/is-hidden/);
     await expect(page.locator("#readerSettingsButton")).toBeVisible();
     await maybeScreenshot(page, testInfo, "pdf-reader");
 
