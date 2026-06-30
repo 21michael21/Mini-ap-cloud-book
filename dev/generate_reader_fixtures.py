@@ -163,27 +163,43 @@ def write_txt(path: Path) -> None:
     )
 
 
-def write_pdf(path: Path, *, scanned_like: bool = False, blank: bool = False) -> None:
+def write_pdf(path: Path, *, scanned_like: bool = False, blank: bool = False, page_count: int = 2) -> None:
     pages = [
-        b"BT /F1 20 Tf 40 150 Td (Reader E2E PDF Page 1) Tj ET\n0.9 g 40 40 220 70 re f",
-        b"BT /F1 20 Tf 40 150 Td (Reader E2E PDF Page 2) Tj ET\n0.2 w 40 40 220 70 re S",
+        f"BT /F1 20 Tf 40 150 Td (Reader E2E PDF Page {index}) Tj ET\n0.2 w 40 40 220 70 re S".encode("ascii")
+        for index in range(1, page_count + 1)
     ]
     if blank:
-        pages = [b"", b""]
+        pages = [b"" for _ in range(page_count)]
     if scanned_like:
         pages = [
             b"0.88 g 25 25 250 150 re f\n0.4 g 42 130 210 8 re f\n0.5 g 42 110 180 8 re f\n0.5 g 42 90 220 8 re f",
             b"0.86 g 25 25 250 150 re f\n0.4 g 42 130 210 8 re f\n0.5 g 42 110 180 8 re f\n0.5 g 42 90 220 8 re f",
         ]
+        page_count = len(pages)
+    kids = " ".join(f"{object_number} 0 R" for object_number in range(3, 3 + page_count)).encode("ascii")
     objects = [
         b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
-        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>\nendobj\n",
-        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>\nendobj\n",
-        b"4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] /Resources << /Font << /F1 5 0 R >> >> /Contents 7 0 R >>\nendobj\n",
-        b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+        b"2 0 obj\n<< /Type /Pages /Kids [" + kids + b"] /Count " + str(page_count).encode("ascii") + b" >>\nendobj\n",
     ]
-    objects.append(b"6 0 obj\n<< /Length " + str(len(pages[0])).encode("ascii") + b" >>\nstream\n" + pages[0] + b"\nendstream\nendobj\n")
-    objects.append(b"7 0 obj\n<< /Length " + str(len(pages[1])).encode("ascii") + b" >>\nstream\n" + pages[1] + b"\nendstream\nendobj\n")
+    font_object_number = 3 + page_count
+    first_content_object_number = font_object_number + 1
+    for index in range(page_count):
+        page_object_number = 3 + index
+        content_object_number = first_content_object_number + index
+        objects.append(
+            f"{page_object_number} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 220] "
+            f"/Resources << /Font << /F1 {font_object_number} 0 R >> >> /Contents {content_object_number} 0 R >>\nendobj\n".encode(
+                "ascii"
+            )
+        )
+    objects.append(f"{font_object_number} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n".encode("ascii"))
+    for index, page in enumerate(pages):
+        object_number = first_content_object_number + index
+        objects.append(
+            f"{object_number} 0 obj\n<< /Length {len(page)} >>\nstream\n".encode("ascii")
+            + page
+            + b"\nendstream\nendobj\n"
+        )
     output = bytearray(b"%PDF-1.4\n")
     offsets = [0]
     for obj in objects:
@@ -213,6 +229,7 @@ def main() -> None:
     write_pdf(PUBLIC / "small.pdf")
     write_pdf(PUBLIC / "scanned_like.pdf", scanned_like=True)
     write_pdf(PUBLIC / "blank.pdf", blank=True)
+    write_pdf(PUBLIC / "long_pdf.pdf", page_count=20)
     print(f"Wrote public reader fixtures to {PUBLIC}")
 
 

@@ -118,8 +118,13 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 const PDF_MIN_ZOOM = 0.75;
 const PDF_MAX_ZOOM = 3;
 const PDF_ZOOM_STEP = 0.25;
-const PDF_MAX_DPR = 2.5;
+const PDF_MAX_DPR = 1.75;
+const PDF_ZOOMED_MAX_DPR = 1.5;
+const PDF_CACHE_LIMIT = 3;
 const PDF_BLANK_WHITE_RATIO = 0.996;
+const PDF_BLANK_RETRY_WHITE_RATIO = 0.999;
+const PDF_WARM_DELAY_MS = 140;
+const PDF_ZOOM_RENDER_DEBOUNCE_MS = 140;
 const EMPTY_SECTION_TITLE = "This section has no readable text";
 const EMPTY_SECTION_HINT = "Try next section";
 const MIN_READABLE_SECTION_CHARS = 8;
@@ -412,9 +417,11 @@ export async function openPdfReader(
     canvas: HTMLCanvasElement;
     cssWidth: number;
     cssHeight: number;
+    dpr: number;
     isBlank: boolean;
     whitePixelRatio: number;
     hasContent: boolean;
+    retryAttempted: boolean;
   };
   let pageNumber = parsePdfPage(restoreLocator, pdf.numPages);
   let requestedPage = pageNumber;
@@ -424,8 +431,46 @@ export async function openPdfReader(
   let completedRenderId = -1;
   let destroyed = false;
   const pageCache = new Map<string, RenderedPdfPage>();
+  const warmTimers = new Set<number>();
+  const warmingKeys = new Set<string>();
+  let warmGeneration = 0;
+  let zoomTimer = 0;
+  let zoomRenderPromise: Promise<void> | null = null;
+  let resolveZoomRender: (() => void) | null = null;
+  let blankRetryCount = 0;
+  let renderCount = 0;
+  let evictedCanvasCount = 0;
+  let maxCacheSize = 0;
 
-  const renderPageToCanvas = async (page: number, force = false): Promise<RenderedPdfPage> => {
+  const syncPdfDebugDataset = () => {
+    pageShell.dataset.cacheSize = String(pageCache.size);
+    pageShell.dataset.maxCacheSize = String(maxCacheSize);
+    pageShell.dataset.evictedCanvasCount = String(evictedCanvasCount);
+    pageShell.dataset.retryCount = String(blankRetryCount);
+    pageShell.dataset.renderCount = String(renderCount);
+    pageShell.dataset.warmInFlight = String(warmingKeys.size);
+    pageShell.dataset.warmTimers = String(warmTimers.size);
+  };
+
+  const releaseRenderedPdfPage = (rendered: RenderedPdfPage | undefined) => {
+    if (!rendered) return;
+    releaseCanvas(rendered.canvas);
+  };
+
+  const clearPageCache = () => {
+    for (const rendered of pageCache.values()) releaseRenderedPdfPage(rendered);
+    pageCache.clear();
+    syncPdfDebugDataset();
+  };
+
+  const cancelWarmRenders = () => {
+    warmGeneration += 1;
+    for (const timer of warmTimers) window.clearTimeout(timer);
+    warmTimers.clear();
+    syncPdfDebugDataset();
+  };
+
+  const renderPageToCanvas = async (page: number, force = false, trimAroundPage = page): Promise<RenderedPdfPage> => {
     const nextPageNumber = Math.min(Math.max(page, 1), pdf.numPages);
     const pdfPage = await pdf.getPage(nextPageNumber);
     const baseViewport = pdfPage.getViewport({ scale: 1 });
@@ -433,7 +478,7 @@ export async function openPdfReader(
     const fitWidthScale = containerWidth / baseViewport.width;
     const scale = fitWidthScale * zoom;
     const viewport = pdfPage.getViewport({ scale });
-    const dpr = clamp(window.devicePixelRatio || 1, 1, PDF_MAX_DPR);
+    const dpr = pdfRenderDpr(zoom);
     const cssWidth = Math.ceil(viewport.width);
     const cssHeight = Math.ceil(viewport.height);
     const cacheKey = `${nextPageNumber}:${containerWidth}:${zoom.toFixed(2)}:${dpr.toFixed(2)}`;
@@ -444,18 +489,27 @@ export async function openPdfReader(
     let renderCssWidth = cssWidth;
     let renderCssHeight = cssHeight;
     let blankStats = samplePdfCanvasBlankness(renderCanvas);
-    const hasContent = await pdfPageHasDetectableContent(pdfPage);
-    if (blankStats.isBlank && hasContent && !force) {
+    let hasContent = false;
+    let retryAttempted = false;
+    if (blankStats.isBlank && blankStats.whitePixelRatio >= PDF_BLANK_RETRY_WHITE_RATIO && !force) {
+      hasContent = await pdfPageHasDetectableContent(pdfPage);
+    }
+    if (blankStats.isBlank && blankStats.whitePixelRatio >= PDF_BLANK_RETRY_WHITE_RATIO && hasContent && !force) {
+      retryAttempted = true;
+      blankRetryCount += 1;
       const safeViewport = pdfPage.getViewport({ scale: fitWidthScale });
       const safeCssWidth = Math.ceil(safeViewport.width);
       const safeCssHeight = Math.ceil(safeViewport.height);
       const retryCanvas = await renderPdfPageCanvas(pdfPage, safeViewport, safeCssWidth, safeCssHeight, dpr);
       const retryBlankStats = samplePdfCanvasBlankness(retryCanvas);
       if (!retryBlankStats.isBlank || retryBlankStats.whitePixelRatio <= blankStats.whitePixelRatio) {
+        releaseCanvas(renderCanvas);
         blankStats = retryBlankStats;
         renderCanvas = retryCanvas;
         renderCssWidth = safeCssWidth;
         renderCssHeight = safeCssHeight;
+      } else {
+        releaseCanvas(retryCanvas);
       }
     }
     if (import.meta.env.DEV) {
@@ -465,8 +519,11 @@ export async function openPdfReader(
           pageNumber: nextPageNumber,
           canvasWidth: renderCanvas.width,
           canvasHeight: renderCanvas.height,
+          dpr,
           whitePixelRatio: blankStats.whitePixelRatio,
           hasContent,
+          retryAttempted,
+          cacheSize: pageCache.size,
         }),
       );
     }
@@ -474,38 +531,68 @@ export async function openPdfReader(
       canvas: renderCanvas,
       cssWidth: renderCssWidth,
       cssHeight: renderCssHeight,
+      dpr,
       isBlank: blankStats.isBlank,
       whitePixelRatio: blankStats.whitePixelRatio,
       hasContent,
+      retryAttempted,
     };
+    releaseRenderedPdfPage(pageCache.get(cacheKey));
     pageCache.set(cacheKey, rendered);
-    trimPageCache(nextPageNumber);
+    renderCount += 1;
+    trimPageCache(trimAroundPage);
+    syncPdfDebugDataset();
     return rendered;
   };
 
   const trimPageCache = (currentPage: number) => {
-    for (const [key] of pageCache) {
+    for (const [key, rendered] of pageCache) {
       const cachedPage = Number(key.split(":", 1)[0]);
-      if (!Number.isFinite(cachedPage) || Math.abs(cachedPage - currentPage) > 1) pageCache.delete(key);
+      if (!Number.isFinite(cachedPage) || Math.abs(cachedPage - currentPage) > 1) {
+        releaseRenderedPdfPage(rendered);
+        evictedCanvasCount += 1;
+        pageCache.delete(key);
+      }
     }
-    while (pageCache.size > 3) {
+    while (pageCache.size > PDF_CACHE_LIMIT) {
       const oldestKey = pageCache.keys().next().value as string | undefined;
       if (!oldestKey) break;
+      releaseRenderedPdfPage(pageCache.get(oldestKey));
+      evictedCanvasCount += 1;
       pageCache.delete(oldestKey);
     }
+    maxCacheSize = Math.max(maxCacheSize, pageCache.size);
+    syncPdfDebugDataset();
   };
 
   const warmAdjacentPages = (currentPage: number) => {
+    cancelWarmRenders();
+    const generation = warmGeneration;
     for (const nearbyPage of [currentPage - 1, currentPage + 1]) {
       if (nearbyPage < 1 || nearbyPage > pdf.numPages) continue;
-      window.setTimeout(() => {
-        if (!destroyed && requestedPage === currentPage) {
-          void renderPageToCanvas(nearbyPage).catch((error) => {
-            console.warn("Could not warm PDF page cache", error);
-          });
+      const warmKey = `${nearbyPage}:${zoom.toFixed(2)}`;
+      if (warmingKeys.has(warmKey)) continue;
+      const timer = window.setTimeout(() => {
+        warmTimers.delete(timer);
+        if (destroyed || generation !== warmGeneration || requestedPage !== currentPage || warmingKeys.has(warmKey)) {
+          syncPdfDebugDataset();
+          return;
         }
-      }, 0);
+        warmingKeys.add(warmKey);
+        syncPdfDebugDataset();
+        void renderPageToCanvas(nearbyPage, false, currentPage)
+          .catch((error) => {
+            console.warn("Could not warm PDF page cache", error);
+          })
+          .finally(() => {
+            warmingKeys.delete(warmKey);
+            if (generation !== warmGeneration || requestedPage !== currentPage) trimPageCache(requestedPage);
+            syncPdfDebugDataset();
+          });
+      }, PDF_WARM_DELAY_MS);
+      warmTimers.add(timer);
     }
+    syncPdfDebugDataset();
   };
 
   const renderPageNow = async (page: number, renderId: number) => {
@@ -527,6 +614,8 @@ export async function openPdfReader(
     pageShell.classList.toggle("is-blank", rendered.isBlank);
     pageShell.dataset.blank = rendered.isBlank ? "true" : "false";
     pageShell.dataset.whitePixelRatio = rendered.whitePixelRatio.toFixed(4);
+    pageShell.dataset.renderDpr = rendered.dpr.toFixed(2);
+    pageShell.dataset.retryAttempted = rendered.retryAttempted ? "true" : "false";
     completedRenderId = renderId;
     trimPageCache(pageNumber);
     warmAdjacentPages(pageNumber);
@@ -545,6 +634,7 @@ export async function openPdfReader(
 
   const renderPage = async (page: number) => {
     if (destroyed) return;
+    cancelWarmRenders();
     requestedPage = Math.min(Math.max(page, 1), pdf.numPages);
     requestedRenderId += 1;
     renderPromise ??= renderLatestRequestedPage().finally(() => {
@@ -554,10 +644,28 @@ export async function openPdfReader(
   };
 
   const setZoom = async (nextZoom: number) => {
-    zoom = clamp(nextZoom, PDF_MIN_ZOOM, PDF_MAX_ZOOM);
-    pageCache.clear();
+    const clampedZoom = clamp(nextZoom, PDF_MIN_ZOOM, PDF_MAX_ZOOM);
+    if (Math.abs(clampedZoom - zoom) < 0.001) return zoomRenderPromise ?? Promise.resolve();
+    zoom = clampedZoom;
+    cancelWarmRenders();
+    clearPageCache();
     options.onZoom?.(zoom);
-    await renderPage(requestedPage);
+    if (!zoomRenderPromise) {
+      zoomRenderPromise = new Promise((resolve) => {
+        resolveZoomRender = resolve;
+      });
+    }
+    window.clearTimeout(zoomTimer);
+    zoomTimer = window.setTimeout(() => {
+      zoomTimer = 0;
+      const done = resolveZoomRender;
+      void renderPage(requestedPage).finally(() => {
+        done?.();
+        zoomRenderPromise = null;
+        resolveZoomRender = null;
+      });
+    }, PDF_ZOOM_RENDER_DEBOUNCE_MS);
+    await zoomRenderPromise;
   };
 
   await renderPage(pageNumber);
@@ -578,12 +686,26 @@ export async function openPdfReader(
     }),
     destroy: () => {
       destroyed = true;
-      pageCache.clear();
-      canvas.width = 0;
-      canvas.height = 0;
+      cancelWarmRenders();
+      window.clearTimeout(zoomTimer);
+      resolveZoomRender?.();
+      zoomRenderPromise = null;
+      resolveZoomRender = null;
+      clearPageCache();
+      releaseCanvas(canvas);
       void pdf.cleanup();
     },
   };
+}
+
+function pdfRenderDpr(zoom: number): number {
+  const cap = zoom > 1.25 ? PDF_ZOOMED_MAX_DPR : PDF_MAX_DPR;
+  return clamp(window.devicePixelRatio || 1, 1, cap);
+}
+
+function releaseCanvas(canvas: HTMLCanvasElement): void {
+  canvas.width = 0;
+  canvas.height = 0;
 }
 
 async function waitForStablePdfContainerWidth(container: HTMLElement): Promise<number> {

@@ -23,6 +23,7 @@ const books = {
   pdf: "Reader E2E Small PDF",
   scannedPdf: "Reader E2E Scanned Like PDF",
   blankPdf: "Reader E2E Blank PDF",
+  longPdf: "Reader E2E Long PDF",
   rename: "Reader E2E Simple EPUB",
   delete: "Reader E2E Bad Markup EPUB",
   move: "Reader E2E CP1251 FB2",
@@ -37,6 +38,7 @@ const experimentFixtures: Array<{ fixture: string; title: string; format: string
   { fixture: "long.txt", title: books.txt, format: "txt" },
   { fixture: "small.pdf", title: books.pdf, format: "pdf" },
   { fixture: "scanned_like.pdf", title: books.scannedPdf, format: "pdf" },
+  { fixture: "long_pdf.pdf", title: books.longPdf, format: "pdf" },
 ];
 
 type ExperimentFlags = {
@@ -315,6 +317,7 @@ test.describe("reader e2e", () => {
     await expect(canvas).toPassCanvasDprCheck();
     await expectPdfPageFrameVisible(page);
     await expectPdfFitWidth(page);
+    await expectPdfRuntimeBounded(page);
     await expect.poll(() => canvasNonBlankScore(page)).toBeGreaterThan(20);
     await maybeScreenshot(page, testInfo, "pdf-page-frame");
     await maybeScreenshot(page, testInfo, "pdf-loading-page-frame");
@@ -326,9 +329,12 @@ test.describe("reader e2e", () => {
     await expect(page.locator("#readerZoomIn")).toBeVisible();
     await expect(page.locator("#readerFitWidth")).toBeVisible();
     await page.locator("#readerZoomIn").click();
+    await page.locator("#readerZoomIn").click();
+    await page.locator("#readerZoomOut").click();
     await closeSheet(page);
     await expect(page.locator("#readerBottomLabel")).toContainText(/1 \/ 2/);
     await expect.poll(() => canvasCssWidth(page)).toBeGreaterThan(widthBefore);
+    await expectPdfRuntimeBounded(page);
     await maybeScreenshot(page, testInfo, "pdf-zoomed");
 
     await openPdfSettings(page);
@@ -347,6 +353,8 @@ test.describe("reader e2e", () => {
       button.click();
     });
     await expect(page.locator("#readerBottomLabel")).toContainText(/2 \/ 2/);
+    await expectPdfRuntimeBounded(page);
+    await expectPdfNormalPageDidNotRetry(page);
     await maybeScreenshot(page, testInfo, "pdf-reader");
 
     await leaveReader(page);
@@ -363,9 +371,44 @@ test.describe("reader e2e", () => {
     await expect(canvas).toPassCanvasDprCheck();
     await expectPdfPageFrameVisible(page);
     await expectPdfFitWidth(page);
+    await expectPdfRuntimeBounded(page);
     await expect(page.locator("#readerBottomLabel")).toContainText(/1 \/ 2/);
     await expect.poll(() => canvasNonBlankScore(page)).toBeGreaterThan(20);
     await maybeScreenshot(page, testInfo, "pdf-scanned-like");
+  });
+
+  test("long PDF keeps render cache bounded while paging and zooming", async ({ page }) => {
+    await resetBookPosition("long_pdf.pdf", "1", 0);
+    await page.addInitScript(() => window.localStorage.setItem("telegram-library-pdf-zoom", "1"));
+    await openBook(page, books.longPdf);
+    await expect(page.locator("#readerBottomLabel")).toContainText(/1 \/ 20/);
+    await expect(page.locator(".pdf-canvas")).toPassCanvasDprCheck();
+    await expectPdfRuntimeBounded(page);
+
+    for (let index = 0; index < 16; index += 1) {
+      await page.locator("#readerNext").click();
+      await expectPdfRuntimeBounded(page);
+    }
+    await expect(page.locator("#readerBottomLabel")).toContainText(/17 \/ 20/);
+    await expectPdfEvictedCanvases(page);
+
+    await page.locator("#readerPrev").evaluate((button: HTMLButtonElement) => {
+      for (let index = 0; index < 8; index += 1) button.click();
+    });
+    await expect(page.locator("#readerBottomLabel")).toContainText(/9 \/ 20/);
+    await expectPdfRuntimeBounded(page);
+
+    await openPdfSettings(page);
+    await page.locator("#readerZoomIn").evaluate((button: HTMLButtonElement) => {
+      for (let index = 0; index < 5; index += 1) button.click();
+    });
+    await page.locator("#readerZoomOut").evaluate((button: HTMLButtonElement) => {
+      for (let index = 0; index < 3; index += 1) button.click();
+    });
+    await closeSheet(page);
+    await expect(page.locator("#readerBottomLabel")).toContainText(/9 \/ 20/);
+    await expectPdfRuntimeBounded(page);
+    await expectPdfNormalPageDidNotRetry(page);
   });
 
   test("blank PDF page keeps page frame and shows a subtle blank label", async ({ page }, testInfo) => {
@@ -376,6 +419,7 @@ test.describe("reader e2e", () => {
     await expect(canvas).toBeVisible();
     await expect(canvas).toPassCanvasDprCheck();
     await expectPdfPageFrameVisible(page);
+    await expectPdfRuntimeBounded(page);
     await expect(page.locator(".pdf-page-shell")).toHaveClass(/is-blank/);
     await expect(page.locator(".pdf-blank-label")).toContainText("This page appears blank");
     await maybeScreenshot(page, testInfo, "pdf-blank-page-state");
@@ -573,7 +617,8 @@ async function runFixtureExperiment(
       pdfCanvasQuality = await page.locator(".pdf-canvas").evaluate((canvasElement: HTMLCanvasElement) => {
         const cssWidth = Number.parseFloat(canvasElement.style.width);
         const cssHeight = Number.parseFloat(canvasElement.style.height);
-        const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+        const shell = canvasElement.closest<HTMLElement>(".pdf-page-shell");
+        const dpr = Number(shell?.dataset.renderDpr ?? Math.min(window.devicePixelRatio || 1, 1.75));
         return (
           Number.isFinite(cssWidth) &&
           Number.isFinite(cssHeight) &&
@@ -888,6 +933,52 @@ async function expectPdfPageFrameVisible(page: Page): Promise<void> {
   expect(frameVisible).toBe(true);
 }
 
+async function expectPdfRuntimeBounded(page: Page): Promise<void> {
+  await expect.poll(async () => {
+    return page.locator(".pdf-page-shell").evaluate((shell: HTMLElement) => ({
+      cacheSize: Number(shell.dataset.cacheSize ?? 0),
+      maxCacheSize: Number(shell.dataset.maxCacheSize ?? 0),
+      warmInFlight: Number(shell.dataset.warmInFlight ?? 0),
+      warmTimers: Number(shell.dataset.warmTimers ?? 0),
+      evictedCanvasCount: Number(shell.dataset.evictedCanvasCount ?? 0),
+      renderDpr: Number(shell.dataset.renderDpr ?? 0),
+    }));
+  }).toMatchObject({
+    cacheSize: expect.any(Number),
+    maxCacheSize: expect.any(Number),
+    warmInFlight: expect.any(Number),
+    warmTimers: expect.any(Number),
+    evictedCanvasCount: expect.any(Number),
+    renderDpr: expect.any(Number),
+  });
+  const stats = await page.locator(".pdf-page-shell").evaluate((shell: HTMLElement) => ({
+    cacheSize: Number(shell.dataset.cacheSize ?? 0),
+    maxCacheSize: Number(shell.dataset.maxCacheSize ?? 0),
+    warmInFlight: Number(shell.dataset.warmInFlight ?? 0),
+    warmTimers: Number(shell.dataset.warmTimers ?? 0),
+    evictedCanvasCount: Number(shell.dataset.evictedCanvasCount ?? 0),
+    renderDpr: Number(shell.dataset.renderDpr ?? 0),
+  }));
+  expect(stats.cacheSize).toBeLessThanOrEqual(3);
+  expect(stats.maxCacheSize).toBeLessThanOrEqual(3);
+  expect(stats.warmInFlight).toBeLessThanOrEqual(2);
+  expect(stats.warmTimers).toBeLessThanOrEqual(2);
+  expect(stats.renderDpr).toBeGreaterThanOrEqual(1);
+  expect(stats.renderDpr).toBeLessThanOrEqual(1.75);
+}
+
+async function expectPdfEvictedCanvases(page: Page): Promise<void> {
+  const evictedCanvasCount = await page
+    .locator(".pdf-page-shell")
+    .evaluate((shell: HTMLElement) => Number(shell.dataset.evictedCanvasCount ?? 0));
+  expect(evictedCanvasCount).toBeGreaterThan(0);
+}
+
+async function expectPdfNormalPageDidNotRetry(page: Page): Promise<void> {
+  const retryCount = await page.locator(".pdf-page-shell").evaluate((shell: HTMLElement) => Number(shell.dataset.retryCount ?? 0));
+  expect(retryCount).toBe(0);
+}
+
 async function canvasNonBlankScore(page: Page): Promise<number> {
   return page.locator(".pdf-canvas").evaluate((canvasElement: HTMLCanvasElement) => {
     if (canvasElement.width <= 0 || canvasElement.height <= 0) return 0;
@@ -1154,7 +1245,8 @@ expect.extend({
     const pass = await locator.evaluate((canvasElement: HTMLCanvasElement) => {
       const cssWidth = Number.parseFloat(canvasElement.style.width);
       const cssHeight = Number.parseFloat(canvasElement.style.height);
-      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      const shell = canvasElement.closest<HTMLElement>(".pdf-page-shell");
+      const dpr = Number(shell?.dataset.renderDpr ?? Math.min(window.devicePixelRatio || 1, 1.75));
       return (
         Number.isFinite(cssWidth) &&
         Number.isFinite(cssHeight) &&
