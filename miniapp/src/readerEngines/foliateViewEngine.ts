@@ -8,7 +8,7 @@ import type {
   TextReaderController,
   TextReaderOptions,
   TextReaderStatus,
-} from "../readerCore";
+} from "../readers/shared";
 
 type FoliateProgressSection = {
   current?: number;

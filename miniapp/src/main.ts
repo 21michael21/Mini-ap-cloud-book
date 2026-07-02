@@ -8,9 +8,7 @@ import {
   type TextReaderController,
   apiHeaders,
   fetchBookFile,
-  openFoliateReader,
-  openPdfReader,
-} from "./readerCore";
+} from "./readers/shared";
 import { readerFeatureFlags } from "./featureFlags";
 import { mark, measure, reportPerfSummary } from "./perf";
 import "./styles.css";
@@ -2155,7 +2153,7 @@ async function renderTextBook(book: Book) {
     mark("reader_engine_import_start");
     const openTextReader = shouldUsePaginated
       ? (await import("./readerEngines/foliateViewEngine")).openFoliateViewReader
-      : openFoliateReader;
+      : (await import("./readers/textReader")).openFoliateReader;
     mark("reader_engine_import_end");
     measure("reader_engine_import", "reader_engine_import_start", "reader_engine_import_end");
     mark("reader_parse_start");
@@ -2193,6 +2191,10 @@ async function renderTextBook(book: Book) {
         const restoreLocator = activeReaderRestoreLocator ?? pos?.locator ?? null;
         activeReaderRestoreLocator = null;
         const file = await fetchReaderFileWithPerf(book, false);
+        mark("reader_engine_import_start");
+        const { openFoliateReader } = await import("./readers/textReader");
+        mark("reader_engine_import_end");
+        measure("reader_engine_import", "reader_engine_import_start", "reader_engine_import_end");
         mark("reader_parse_start");
         const controller = await openFoliateReader(
           stage,
@@ -2241,10 +2243,11 @@ async function renderPdf(book: Book) {
     if (readerFeatureFlags.pdfReaderMode === "viewer-shell") {
       console.warn("PDF viewer-shell experiment is not implemented yet; using canvas reader.");
     }
-    mark("pdf_import_start");
-    mark("pdf_import_end");
-    measure("pdf_import", "pdf_import_start", "pdf_import_end");
     let pdfReader: PdfReaderController | null = null;
+    mark("reader_engine_import_start");
+    const { openPdfReader } = await import("./readers/pdfReader");
+    mark("reader_engine_import_end");
+    measure("reader_engine_import", "reader_engine_import_start", "reader_engine_import_end");
     mark("reader_parse_start");
     pdfReader = await openPdfReader(
       stage,
