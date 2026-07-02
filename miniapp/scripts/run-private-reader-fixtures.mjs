@@ -21,7 +21,7 @@ function argValue(name, fallback) {
 
 function readModeConfig() {
   return {
-    textReaderEngine: argValue("--text-reader-engine", process.env.VITE_TEXT_READER_ENGINE ?? process.env.VITE_READER_ENGINE ?? "custom"),
+    textReaderEngine: argValue("--text-reader-engine", process.env.VITE_TEXT_READER_ENGINE ?? process.env.VITE_READER_ENGINE ?? "foliate-view"),
     textRenderMode: argValue("--text-render-mode", process.env.VITE_TEXT_RENDER_MODE ?? "clean"),
     pdfReaderMode: argValue("--pdf-reader-mode", process.env.VITE_PDF_READER_MODE ?? "canvas"),
     readerUi: argValue("--reader-ui", process.env.VITE_READER_UI ?? "v2"),
@@ -107,7 +107,7 @@ const backend = spawnProcess(
 );
 const vite = spawnProcess(
   "npm",
-  ["run", "dev", "--", "--host", "127.0.0.1", "--port", "15173"],
+  ["run", "dev", "--", "--force", "--host", "127.0.0.1", "--port", "15173"],
   { cwd: miniappDir, env: viteEnv },
 );
 

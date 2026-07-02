@@ -27,7 +27,7 @@ function readModeConfig(overrides = {}) {
   return {
     textReaderEngine:
       overrides.textReaderEngine ??
-      argValue("--text-reader-engine", process.env.VITE_TEXT_READER_ENGINE ?? process.env.VITE_READER_ENGINE ?? "custom"),
+      argValue("--text-reader-engine", process.env.VITE_TEXT_READER_ENGINE ?? process.env.VITE_READER_ENGINE ?? "foliate-view"),
     textRenderMode: overrides.textRenderMode ?? argValue("--text-render-mode", process.env.VITE_TEXT_RENDER_MODE ?? "clean"),
     pdfReaderMode: overrides.pdfReaderMode ?? argValue("--pdf-reader-mode", process.env.VITE_PDF_READER_MODE ?? "canvas"),
     readerUi: overrides.readerUi ?? argValue("--reader-ui", process.env.VITE_READER_UI ?? "v2"),
@@ -125,7 +125,7 @@ async function runOne(modeConfig, runName, allowFailure = false) {
   );
   const vite = spawnProcess(
     "npm",
-    ["run", "dev", "--", "--host", "127.0.0.1", "--port", "15173"],
+    ["run", "dev", "--", "--force", "--host", "127.0.0.1", "--port", "15173"],
     { cwd: miniappDir, env: viteEnv },
   );
 
@@ -212,11 +212,11 @@ if (allEngines) {
   const privateFixturesPresent = hasPrivateFixtures();
   for (const mode of allEngineMatrix) {
     console.log(`\n=== Reader experiment: ${mode.name} ===`);
-    const code = await runOne(mode, mode.name, mode.textReaderEngine !== "custom");
+    const code = await runOne(mode, mode.name);
     if (code !== 0) finalExitCode = code;
     if (privateFixturesPresent) {
       console.log(`\n=== Private reader fixtures: ${mode.name} ===`);
-      const privateCode = runPrivateOne(mode, mode.name, mode.textReaderEngine !== "custom");
+      const privateCode = runPrivateOne(mode, mode.name);
       if (privateCode !== 0) finalExitCode = privateCode;
     }
   }

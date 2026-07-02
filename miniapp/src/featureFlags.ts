@@ -23,7 +23,7 @@ export const readerFeatureFlags: ReaderFeatureFlags = {
   textReaderEngine: readFlag(
     import.meta.env.VITE_TEXT_READER_ENGINE ?? import.meta.env.VITE_READER_ENGINE,
     TEXT_READER_ENGINES,
-    "custom",
+    "foliate-view",
   ),
   textRenderMode: readFlag(import.meta.env.VITE_TEXT_RENDER_MODE, TEXT_RENDER_MODES, "clean"),
   pdfReaderMode: readFlag(import.meta.env.VITE_PDF_READER_MODE, PDF_READER_MODES, "canvas"),

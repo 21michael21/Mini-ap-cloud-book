@@ -2046,12 +2046,20 @@ body:not(.reader-light):not(.reader-sepia) .reader {
 foliate-view {
   display: block;
   width: 100%;
-  height: calc(100vh - 72px);
+  height: calc(100vh - 72px - var(--reader-bottom-clearance));
+  height: calc(100dvh - 72px - var(--reader-bottom-clearance));
 }
 
 .foliate-view-reader {
+  height: calc(100vh - 72px - var(--reader-bottom-clearance) - env(safe-area-inset-top, 0px));
+  height: calc(100dvh - 72px - var(--reader-bottom-clearance) - env(safe-area-inset-top, 0px));
   min-height: calc(100vh - 176px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   min-height: calc(100dvh - 176px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+}
+
+.reader-v2 .foliate-view-reader {
+  height: calc(100vh - 66px - var(--reader-bottom-clearance) - env(safe-area-inset-top, 0px));
+  height: calc(100dvh - 66px - var(--reader-bottom-clearance) - env(safe-area-inset-top, 0px));
 }
 
 .book-frame {

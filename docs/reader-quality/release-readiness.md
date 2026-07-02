@@ -1,19 +1,21 @@
 # Reader Release Readiness
 
-Date: 2026-06-30
+Date: 2026-07-02
 
 ## Current Defaults
 
 The stable local reader defaults are:
 
-- Text reader engine: `custom`
+- Text reader engine: `foliate-view`
+- Text reading mode: `Pages` by default, with `Scroll` available as the
+  per-user custom-reader fallback in the Aa sheet
 - Text render mode: `clean`
 - PDF reader mode: `canvas`
 - Reader UI: `v2`
 
-`foliate-view`, `original` text render mode, and `viewer-shell` remain local
-experiments only. They must not be deployed to VDS unless a later decision
-document explicitly promotes them.
+`original` text render mode and `viewer-shell` remain local experiments only.
+They must not be deployed to VDS unless a later decision document explicitly
+promotes them.
 
 ## Public Fixture Result
 
@@ -29,8 +31,10 @@ fixtures:
 - `small.pdf`
 - `scanned_like.pdf`
 
-The latest local quality gate should produce a
-`custom-clean-canvas-v2` report under `reports/reader-experiments/`.
+The latest default-engine e2e produced
+`reports/reader-experiments/2026-07-02T13-12-58-967Z-foliate-view-clean-canvas-v2.json`
+with 9/9 public fixture records opened, 9/9 position restores, and 0 report
+errors.
 
 ## Private Fixture Result
 
@@ -82,8 +86,8 @@ even when automated tests pass.
 
 - Private fixture result is empty until real problematic books are placed
   locally.
-- `foliate-view` is not default: text introspection, font-size observability,
-  TXT restore, and cleanup stability still need work.
+- `foliate-view` is now default for text reading, but the custom scroll reader
+  remains available as a fallback for books that fail to open in paginated mode.
 - PDF text layer is still a TODO; scanned PDFs are rendered visually but are not
   OCR/searchable.
 - The "Open similar item" duplicate action needs an API shape that exposes the
@@ -91,7 +95,8 @@ even when automated tests pass.
 
 ## VDS Deploy Verdict
 
-Reader UI v2 is ready to become the stable local/default UI path after the
-quality gate and screenshot e2e pass. This is not a deploy approval by itself:
-VDS was not touched in this task, and production environment variables must not
-be edited unless a separate deploy task explicitly requests it.
+Reader UI v2 and paginated text reading are ready as the stable local/default
+paths after the quality gate and screenshot e2e pass. This is not a deploy
+approval by itself: VDS was not touched in this task, and production environment
+variables must not be edited unless a separate deploy task explicitly requests
+it.

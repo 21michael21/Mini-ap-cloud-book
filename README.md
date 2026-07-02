@@ -437,13 +437,18 @@ Book HTML is sanitized before rendering and placed in sandboxed iframes with `sa
 
 Current stable reader defaults are:
 
-- `VITE_TEXT_READER_ENGINE=custom`
+- `VITE_TEXT_READER_ENGINE=foliate-view`
 - `VITE_TEXT_RENDER_MODE=clean`
 - `VITE_PDF_READER_MODE=canvas`
 - `VITE_READER_UI=v2`
 
-Reader A/B flags are for local experiments only and must not be set on VDS
-unless a later reader decision explicitly promotes them. See
+Text reading defaults to paginated `foliate-view` ("Pages") with the custom
+scroll reader still available as the per-user `Scroll` fallback in the Aa sheet.
+If `foliate-view` fails for a specific book, the Mini App falls back to the
+custom scroll engine without changing backend/auth/CSP behavior.
+
+Reader A/B flags are for local experiments unless a reader decision explicitly
+promotes them. See
 `docs/reader-quality/ab-reader-experiments.md` for
 `VITE_TEXT_READER_ENGINE`, `VITE_TEXT_RENDER_MODE`, `VITE_PDF_READER_MODE`,
 and `VITE_READER_UI`.

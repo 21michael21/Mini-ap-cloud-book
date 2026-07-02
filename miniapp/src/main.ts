@@ -71,6 +71,7 @@ type SheetState =
   | { kind: "notes"; book: Book; notes: Note[]; isLoading: boolean; error: string | null }
   | null;
 type AppTheme = "day" | "night";
+type ReaderTextMode = "pages" | "scroll";
 type PendingAction = "folder" | "folderEdit" | "folderRemove" | "move" | "edit" | "remove" | "reorder" | "note" | null;
 type ToastKind = "info" | "success" | "error";
 
@@ -117,6 +118,7 @@ let readerFontSizePx = readReaderFontSize();
 let readerFontFamily = readReaderFontFamily();
 let readerLineSpacing = readReaderLineSpacing();
 let readerMargin = readReaderMargin();
+let readerTextMode = readReaderTextMode();
 let pdfZoom = readPdfZoom();
 let readerStatusLabel = "Opening...";
 let readerStatusPercent = 0;
@@ -1179,6 +1181,13 @@ function renderReaderSettingsSheet(sheet: Extract<SheetState, { kind: "readerSet
                 </div>
               </div>
               <div class="reader-setting-row reader-setting-row--stack">
+                <span>Reading mode</span>
+                <div class="reader-theme-options" role="group" aria-label="Reading mode">
+                  ${renderReaderSegmentButton("Pages", "reader-mode", "pages", readerTextMode)}
+                  ${renderReaderSegmentButton("Scroll", "reader-mode", "scroll", readerTextMode)}
+                </div>
+              </div>
+              <div class="reader-setting-row reader-setting-row--stack">
                 <span>Font family</span>
                 <div class="reader-theme-options" role="group" aria-label="Font family">
                   ${renderReaderSegmentButton("Literata", "reader-family", "literata", readerFontFamily)}
@@ -1675,6 +1684,9 @@ function bindSheetControls() {
     document.querySelectorAll<HTMLElement>("[data-reader-margin]").forEach((button) => {
       button.addEventListener("click", () => setReaderMargin(button.dataset.readerMargin as ReaderMargin));
     });
+    document.querySelectorAll<HTMLElement>("[data-reader-mode]").forEach((button) => {
+      button.addEventListener("click", () => void setReaderTextMode(button.dataset.readerMode as ReaderTextMode));
+    });
     document.querySelectorAll<HTMLElement>("[data-reader-theme]").forEach((button) => {
       button.addEventListener("click", () => setReaderTheme(button.dataset.readerTheme as ReaderContentTheme));
     });
@@ -1994,7 +2006,7 @@ function renderReader(book: Book) {
     <div class="reader-stage" id="readerStage"></div>
     <div class="reader-bottom-progress ${book.format === "pdf" ? "reader-bottom-progress--pdf" : ""} ${isV2 ? "reader-bottom-progress--v2" : ""}" id="readerBottomProgress">
       ${book.format === "pdf" && !isV2 ? `<button class="secondary reader-pdf-zoom-button" id="readerPdfZoomOut" type="button" aria-label="Zoom out">&minus;</button>` : ""}
-      <button class="secondary reader-nav-button" id="readerPrev" type="button">${icon("arrowLeft")}<span>${book.format === "pdf" ? "Page" : "Section"}</span></button>
+      <button class="secondary reader-nav-button" id="readerPrev" type="button">${icon("arrowLeft")}<span>${book.format === "pdf" || readerTextMode === "pages" ? "Page" : "Section"}</span></button>
       <div class="reader-progress-panel">
         <div class="reader-progress-copy">
           <span id="readerBottomLabel">${escapeHtml(readerStatusLabel)}</span>
@@ -2004,7 +2016,7 @@ function renderReader(book: Book) {
           <span class="progress-meter ${progressClass(readerStatusPercent)}" id="readerProgressMeter"></span>
         </span>
       </div>
-      <button class="secondary reader-nav-button" id="readerNext" type="button"><span>${book.format === "pdf" ? "Page" : "Section"}</span>${icon("arrowRight")}</button>
+      <button class="secondary reader-nav-button" id="readerNext" type="button"><span>${book.format === "pdf" || readerTextMode === "pages" ? "Page" : "Section"}</span>${icon("arrowRight")}</button>
       ${book.format === "pdf" && !isV2 ? `<button class="secondary reader-pdf-zoom-button" id="readerPdfZoomIn" type="button" aria-label="Zoom in">+</button>` : ""}
     </div>
     ${showHint ? `<button class="reader-hint toast-in" id="readerHint" type="button">${isV2 ? "Tap the page for controls. Use Aa to change reading settings." : "Tap the screen for controls. Use Aa to change text size."}</button>` : ""}
@@ -2053,10 +2065,10 @@ async function renderTextBook(book: Book) {
     const restoreLocator = activeReaderRestoreLocator ?? pos?.locator ?? null;
     activeReaderRestoreLocator = null;
     const file = await fetchBookFile(API_BASE, initData(), book);
-    const openTextReader =
-      readerFeatureFlags.textReaderEngine === "foliate-view"
-        ? (await import("./readerEngines/foliateViewEngine")).openFoliateViewReader
-        : openFoliateReader;
+    const shouldUsePaginated = readerTextMode === "pages" && readerFeatureFlags.textReaderEngine === "foliate-view";
+    const openTextReader = shouldUsePaginated
+      ? (await import("./readerEngines/foliateViewEngine")).openFoliateViewReader
+      : openFoliateReader;
     const controller = await openTextReader(
       stage,
       file,
@@ -2080,6 +2092,43 @@ async function renderTextBook(book: Book) {
     );
     bindTextReaderControls(controller);
   } catch (error) {
+    if (readerTextMode === "pages" && readerFeatureFlags.textReaderEngine === "foliate-view") {
+      console.warn("Paginated text reader failed; falling back to scroll mode for this book.", error);
+      try {
+        renderReaderLoading(stage);
+        const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
+        const restoreLocator = activeReaderRestoreLocator ?? pos?.locator ?? null;
+        activeReaderRestoreLocator = null;
+        const file = await fetchBookFile(API_BASE, initData(), book);
+        const controller = await openFoliateReader(
+          stage,
+          file,
+          restoreLocator,
+          (position) => {
+            savePositionSafely(book.id, position.locator, position.percent);
+          },
+          undefined,
+          book.format,
+          (status) => updateReaderControls(status.label, status.canGoPrevious, status.canGoNext, parseReaderPercent(status.label)),
+          {
+            fontSizePx: readerFontSizePx,
+            fontFamily: readerFontFamily,
+            theme: readerTheme,
+            lineSpacing: readerLineSpacing,
+            margin: readerMargin,
+            onTap: toggleReaderToolbar,
+            onNearTop: showReaderToolbar,
+            renderMode: readerFeatureFlags.textRenderMode,
+          },
+        );
+        bindTextReaderControls(controller);
+        showToast("Opened in Scroll fallback", "info");
+        return;
+      } catch (fallbackError) {
+        renderReaderError(stage, book, fallbackError);
+        return;
+      }
+    }
     renderReaderError(stage, book, error);
   }
 }
@@ -2377,6 +2426,8 @@ function resetReaderTextSettings() {
   window.localStorage.setItem("telegram-library-reader-line-spacing", readerLineSpacing);
   window.localStorage.setItem("telegram-library-reader-margin", readerMargin);
   window.localStorage.setItem("telegram-library-reader-theme", readerTheme);
+  window.localStorage.setItem("telegram-library-reader-text-mode", "pages");
+  readerTextMode = "pages";
   applyReaderTheme();
   activeTextReader?.setFontSize(readerFontSizePx);
   activeTextReader?.setFontFamily(readerFontFamily);
@@ -2385,6 +2436,21 @@ function resetReaderTextSettings() {
   activeTextReader?.setTheme(readerTheme);
   activePdfReader?.setTheme(readerTheme);
   scheduleReaderSettingsSync();
+}
+
+async function setReaderTextMode(mode: ReaderTextMode) {
+  if (mode !== "pages" && mode !== "scroll") return;
+  if (readerTextMode === mode) return;
+  hapticSelection();
+  activeTextReader?.saveNow();
+  readerTextMode = mode;
+  window.localStorage.setItem("telegram-library-reader-text-mode", readerTextMode);
+  scheduleReaderSettingsSync();
+  if (activeBook && activeBook.format !== "pdf" && view === "reader") {
+    cleanupActiveReader(true);
+    renderReaderLoading(document.querySelector<HTMLElement>("#readerStage")!);
+    await renderTextBook(activeBook);
+  }
 }
 
 async function changePdfZoom(direction: -1 | 1) {
@@ -2423,6 +2489,7 @@ function syncReaderSettingsSheet() {
   syncPressedButtons("[data-reader-family]", readerFontFamily);
   syncPressedButtons("[data-reader-line]", readerLineSpacing);
   syncPressedButtons("[data-reader-margin]", readerMargin);
+  syncPressedButtons("[data-reader-mode]", readerTextMode);
   syncPressedButtons("[data-reader-theme]", readerTheme);
   updateReaderFontButtons();
   updatePdfZoomButtons(pdfZoom);
@@ -2430,7 +2497,12 @@ function syncReaderSettingsSheet() {
 
 function syncPressedButtons(selector: string, activeValue: string) {
   document.querySelectorAll<HTMLButtonElement>(selector).forEach((button) => {
-    const value = button.dataset.readerFamily ?? button.dataset.readerLine ?? button.dataset.readerMargin ?? button.dataset.readerTheme;
+    const value =
+      button.dataset.readerFamily ??
+      button.dataset.readerLine ??
+      button.dataset.readerMargin ??
+      button.dataset.readerMode ??
+      button.dataset.readerTheme;
     const isActive = value === activeValue;
     button.classList.toggle("active", isActive);
     button.setAttribute("aria-pressed", isActive ? "true" : "false");
@@ -2464,6 +2536,11 @@ function readReaderMargin(): ReaderMargin {
   const stored = window.localStorage.getItem("telegram-library-reader-margin");
   if (stored === "narrow" || stored === "wide") return stored;
   return "normal";
+}
+
+function readReaderTextMode(): ReaderTextMode {
+  const stored = window.localStorage.getItem("telegram-library-reader-text-mode");
+  return stored === "scroll" ? "scroll" : "pages";
 }
 
 function updatePdfZoomButtons(zoom: number) {

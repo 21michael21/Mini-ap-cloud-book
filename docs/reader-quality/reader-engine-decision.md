@@ -1,5 +1,49 @@
 # Reader Engine Decision Spike
 
+## 2026-07-02 Update: Paginated Reader Promoted
+
+This update supersedes the 2026-06-30 decision below.
+
+Recommendation B is now accepted for the local/default text reader path:
+`foliate-view + clean + v2` is the default for EPUB/FB2/TXT. The custom clean
+scroll reader remains available as the Aa-sheet `Scroll` fallback and is used
+automatically if `foliate-view` fails for a specific book.
+
+The blockers from the first spike were closed:
+
+1. Foliate-rendered documents now expose deterministic diagnostics for e2e:
+   visible text length, loaded reader stylesheet, font faces, font size,
+   section/page state, and serialized locator.
+2. `/reader-content.css` is injected into foliate-rendered iframes from a
+   same-origin absolute URL and `@font-face` loading is verified.
+3. Font size, family, theme, line spacing, and margins apply live to
+   foliate-rendered content.
+4. TXT is opened as a synthetic paginated Foliate book with stable restore.
+5. Foliate lifecycle and sandbox patches are idempotent and fail the build if
+   the expected patch targets are missing.
+6. Strict restore tests are no longer skipped for EPUB, FB2, or TXT.
+
+Latest default-engine report:
+
+- `reports/reader-experiments/2026-07-02T13-12-58-967Z-foliate-view-clean-canvas-v2.json`
+
+Result summary:
+
+| Format | Fixtures | Opened | Position restored | Font controls | Progress visible | Errors |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| EPUB | 3 | 3 | 3 | 3 | 3 | 0 |
+| FB2 | 2 | 2 | 2 | 2 | 2 | 0 |
+| TXT | 1 | 1 | 1 | 1 | 1 | 0 |
+| PDF | 3 | 3 | 3 | 0 | 3 | 0 |
+
+Private fixtures were not present during this run (`0/0`). Do not treat that as
+proof for copyrighted/problematic books until they are placed under
+`dev/reader_fixtures/private/` and the private gate passes.
+
+No CSP relaxation was added, no CDN was used, and book iframes remain sandboxed
+without `allow-scripts`. PDF stays on `canvas`; this decision changes only the
+text reader default.
+
 Date: 2026-06-30
 
 ## Decision

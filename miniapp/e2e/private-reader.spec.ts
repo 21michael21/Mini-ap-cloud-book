@@ -103,7 +103,9 @@ async function checkPrivateFixture(page: Page, fixture: PrivateFixture): Promise
   let positionRestore = false;
   let coverState: PrivateFixtureRecord["coverState"] = "unknown";
   let screenshotPath: string | null = null;
-  const capturePageError = (error: Error) => errors.push(`pageerror: ${error.message}`);
+  const capturePageError = (error: Error) => {
+    if (!isExpectedPageError(error.message)) errors.push(`pageerror: ${error.message}`);
+  };
   const captureConsoleError = (message: ConsoleMessage) => {
     const text = message.text();
     if (message.type() === "error" && !isExpectedSandboxBlock(text)) errors.push(`console: ${text}`);
@@ -214,6 +216,10 @@ async function readerVisibleTextLength(page: Page, format: string): Promise<numb
       return (iframe.contentDocument?.body?.innerText ?? "").trim().length;
     }).catch(() => 0);
   }
+  const foliateCount = await page.locator(".foliate-view-reader").count();
+  if (foliateCount > 0) {
+    return page.locator(".foliate-view-reader").evaluate((element: HTMLElement) => Number(element.dataset.visibleTextLength ?? 0)).catch(() => 0);
+  }
   return (await page.locator("#readerStage").innerText().catch(() => "")).trim().length;
 }
 
@@ -234,6 +240,13 @@ async function readerTextFontSize(page: Page): Promise<number | null> {
     return page.locator(".book-frame").evaluate((iframe: HTMLIFrameElement) => {
       const body = iframe.contentDocument?.body;
       return body ? Number.parseFloat(getComputedStyle(body).fontSize) : null;
+    }).catch(() => null);
+  }
+  const foliateCount = await page.locator(".foliate-view-reader").count();
+  if (foliateCount > 0) {
+    return page.locator(".foliate-view-reader").evaluate((element: HTMLElement) => {
+      const size = Number.parseFloat(element.dataset.readerFontSize ?? "");
+      return Number.isFinite(size) ? size : null;
     }).catch(() => null);
   }
   return page.locator("#readerStage").evaluate((stage) => Number.parseFloat(getComputedStyle(stage).fontSize)).catch(() => null);
@@ -327,17 +340,21 @@ function isExpectedSandboxBlock(message: string): boolean {
   return message.includes("Blocked script execution") && message.includes("allow-scripts");
 }
 
+function isExpectedPageError(message: string): boolean {
+  return message.includes("ResizeObserver loop completed with undelivered notifications");
+}
+
 function parseExperimentFlags(): ExperimentFlags {
   try {
     const parsed = JSON.parse(process.env.READER_E2E_FLAGS_JSON ?? "{}") as Partial<ExperimentFlags>;
     return {
-      textReaderEngine: parsed.textReaderEngine ?? process.env.VITE_TEXT_READER_ENGINE ?? "custom",
+      textReaderEngine: parsed.textReaderEngine ?? process.env.VITE_TEXT_READER_ENGINE ?? "foliate-view",
       textRenderMode: parsed.textRenderMode ?? process.env.VITE_TEXT_RENDER_MODE ?? "clean",
       pdfReaderMode: parsed.pdfReaderMode ?? process.env.VITE_PDF_READER_MODE ?? "canvas",
-      readerUi: parsed.readerUi ?? process.env.VITE_READER_UI ?? "v1",
+      readerUi: parsed.readerUi ?? process.env.VITE_READER_UI ?? "v2",
     };
   } catch {
-    return { textReaderEngine: "custom", textRenderMode: "clean", pdfReaderMode: "canvas", readerUi: "v1" };
+    return { textReaderEngine: "foliate-view", textRenderMode: "clean", pdfReaderMode: "canvas", readerUi: "v2" };
   }
 }
 

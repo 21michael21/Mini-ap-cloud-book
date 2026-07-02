@@ -971,13 +971,27 @@ export function parseTextLocator(locator: string | null | undefined, sectionCoun
   const fallback: TextLocator = { type: "text", sectionIndex: 0, scrollRatio: 0 };
   if (!locator || locator.startsWith("epubcfi(")) return fallback;
   try {
-    const parsed = JSON.parse(locator) as Partial<TextLocator>;
-    if (parsed.type !== "text") return fallback;
-    return {
-      type: "text",
-      sectionIndex: clampNumber(parsed.sectionIndex, 0, Math.max(sectionCount - 1, 0), 0),
-      scrollRatio: clampNumber(parsed.scrollRatio, 0, 1, 0),
+    const parsed = JSON.parse(locator) as {
+      type?: unknown;
+      sectionIndex?: unknown;
+      scrollRatio?: unknown;
+      percent?: unknown;
     };
+    if (parsed.type === "text") {
+      return {
+        type: "text",
+        sectionIndex: clampNumber(parsed.sectionIndex, 0, Math.max(sectionCount - 1, 0), 0),
+        scrollRatio: clampNumber(parsed.scrollRatio, 0, 1, 0),
+      };
+    }
+    if (parsed.type === "foliate-view") {
+      return {
+        type: "text",
+        sectionIndex: clampNumber(parsed.sectionIndex, 0, Math.max(sectionCount - 1, 0), 0),
+        scrollRatio: clampNumber(parsed.scrollRatio, 0, 1, 0),
+      };
+    }
+    return fallback;
   } catch {
     return fallback;
   }
@@ -987,7 +1001,13 @@ export function parseTxtLocator(locator: string | null | undefined): TxtLocator 
   const fallback: TxtLocator = { type: "txt", scrollRatio: 0 };
   if (!locator || locator.startsWith("epubcfi(")) return fallback;
   try {
-    const parsed = JSON.parse(locator) as Partial<TxtLocator>;
+    const parsed = JSON.parse(locator) as { type?: unknown; scrollRatio?: unknown; percent?: unknown };
+    if (parsed.type === "foliate-view") {
+      return {
+        type: "txt",
+        scrollRatio: clampNumber(parsed.scrollRatio, 0, 1, clampNumber(parsed.percent, 0, 100, 0) / 100),
+      };
+    }
     if (parsed.type !== "txt") return fallback;
     return {
       type: "txt",
@@ -1119,7 +1139,7 @@ function makeCleanReaderHtml(sourceDoc: Document): string {
   cleanDoc.head.append(viewport);
   const stylesheet = cleanDoc.createElement("link");
   stylesheet.rel = "stylesheet";
-  stylesheet.href = "/reader-content.css";
+  stylesheet.href = new URL("/reader-content.css", window.location.origin).toString();
   stylesheet.dataset.readerContentCss = "true";
   cleanDoc.head.append(stylesheet);
 
@@ -1153,7 +1173,7 @@ function makeOriginalReaderHtml(sourceDoc: Document): string {
   originalDoc.head.append(viewport);
   const stylesheet = originalDoc.createElement("link");
   stylesheet.rel = "stylesheet";
-  stylesheet.href = "/reader-content.css";
+  stylesheet.href = new URL("/reader-content.css", window.location.origin).toString();
   stylesheet.dataset.readerContentCss = "true";
   originalDoc.head.append(stylesheet);
   sourceHead
@@ -1420,7 +1440,7 @@ function ensureReaderContentStylesheet(doc: Document): void {
   if (doc.querySelector('link[data-reader-content-css="true"]')) return;
   const link = doc.createElement("link");
   link.rel = "stylesheet";
-  link.href = "/reader-content.css";
+  link.href = new URL("/reader-content.css", window.location.origin).toString();
   link.dataset.readerContentCss = "true";
   (doc.head ?? doc.documentElement).prepend(link);
 }

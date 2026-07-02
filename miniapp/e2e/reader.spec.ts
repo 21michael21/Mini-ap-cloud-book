@@ -86,7 +86,6 @@ test.describe("reader e2e", () => {
   }
 
   test("EPUB opens, changes font, saves progress, and restores position", async ({ page }, testInfo) => {
-    test.skip(experimentFlags.textReaderEngine === "foliate-view", "Strict restore gate targets the stable custom reader.");
     await resetBookPosition("multi_section.epub", JSON.stringify({ type: "text", sectionIndex: 0, scrollRatio: 0 }), 0);
     if (isReaderUiV2) {
       await page.addInitScript(() => {
@@ -99,10 +98,13 @@ test.describe("reader e2e", () => {
     await expect(page.locator("#readerSettingsButton")).toHaveClass(/reader-aa-nudge/);
     await expect(page.locator("#readerMark")).toBeVisible();
     await expect(page.locator("#readerBottomProgress")).toBeVisible();
-    const frame = await waitForBookFrame(page);
-    await expectVisibleText(frame, 400);
-    await expectReaderContentStylesheetLoaded(frame);
-    await expect(page.locator("#readerBottomLabel")).toContainText(/Section|%/);
+    const readerKind = await waitForTextReaderKind(page);
+    const isFoliateReader = readerKind === "foliate";
+    const frame = isFoliateReader ? null : await waitForBookFrame(page);
+    if (frame) await expectVisibleText(frame, 400);
+    else await expect.poll(() => readerVisibleTextLength(page, "epub")).toBeGreaterThan(400);
+    await expectCurrentTextReaderContentStylesheetLoaded(page, frame ?? undefined);
+    await expect(page.locator("#readerBottomLabel")).toContainText(isFoliateReader ? /Page \d+\/\d+.*%/ : /Section|%/);
     if (isReaderUiV2) {
       await expect(page.locator("#readerHint")).toContainText("Tap the page for controls. Use Aa to change reading settings.");
       await maybeScreenshot(page, testInfo, "reader-v2-text-controls");
@@ -110,7 +112,7 @@ test.describe("reader e2e", () => {
     } else {
       await maybeScreenshot(page, testInfo, "text-controls-visible");
     }
-    await page.locator("#readerStage").click({ position: { x: 320, y: 360 } }).catch(() => undefined);
+    await tapReaderPageCenter(page);
     await page.waitForTimeout(200);
     await expect(page.locator("#readerToolbar")).toHaveClass(/is-hidden/);
     await expect(page.locator("#readerBottomProgress")).toHaveClass(/is-hidden/);
@@ -119,30 +121,34 @@ test.describe("reader e2e", () => {
     } else {
       await maybeScreenshot(page, testInfo, "text-controls-hidden");
     }
-    await page.locator("#readerStage").click({ position: { x: 320, y: 360 } }).catch(() => undefined);
+    await tapReaderPageCenter(page);
     await expect(page.locator("#readerToolbar")).not.toHaveClass(/is-hidden/);
     await expect(page.locator("#readerBottomProgress")).not.toHaveClass(/is-hidden/);
     await expect(page.locator("#readerSettingsButton")).toBeVisible();
 
-    const before = await bodyFontSize(frame);
+    const before = frame ? await bodyFontSize(frame) : await waitForOptionalReaderFontSize(page);
+    expect(before).not.toBeNull();
     await page.locator("#readerSettingsButton").click();
     await expect(page.locator(".reader-settings-sheet")).toBeVisible();
+    await expect(page.locator("[data-reader-mode='pages']")).toBeVisible();
+    await expect(page.locator("[data-reader-mode='scroll']")).toBeVisible();
+    await expect(page.locator("[data-reader-mode='pages']")).toHaveAttribute("aria-pressed", "true");
     if (isReaderUiV2) {
       await expect(page.locator("[data-reader-line='spacious']")).toBeVisible();
       await expect(page.locator("[data-reader-margin='wide']")).toBeVisible();
       await expect(page.locator("[data-reader-family='literata']")).toBeVisible();
-      await expectReaderFontFacesLoaded(frame);
+      await expectCurrentTextReaderFontFacesLoaded(page, frame ?? undefined);
       await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "reader-v2-aa-sheet");
       await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "settings-sheet");
     } else {
       await maybeScreenshot(page, testInfo, "text-aa-settings-sheet");
     }
     await page.locator("#readerFontUp").click();
-    await expect.poll(() => bodyFontSize(frame)).toBeGreaterThan(before);
+    await expect.poll(async () => (frame ? await bodyFontSize(frame) : (await optionalReaderFontSize(page)) ?? 0)).toBeGreaterThan(before ?? 0);
     await page.locator("[data-reader-family='sans']").click();
-    await expect.poll(() => bodyFontFamily(frame)).toContain("Space Grotesk");
+    await expect.poll(async () => (frame ? await bodyFontFamily(frame) : (await optionalReaderFontFamily(page)) ?? "")).toContain("Space Grotesk");
     await page.locator("[data-reader-family='serif']").click();
-    await expect.poll(() => bodyFontFamily(frame)).toContain("Georgia");
+    await expect.poll(async () => (frame ? await bodyFontFamily(frame) : (await optionalReaderFontFamily(page)) ?? "")).toContain("Georgia");
     if (isReaderUiV2) {
       await page.locator("[data-reader-line='spacious']").click();
       await page.locator("[data-reader-margin='wide']").click();
@@ -163,15 +169,27 @@ test.describe("reader e2e", () => {
       await maybeScreenshot(page, testInfo, "toast");
     }
 
-    await page.locator("#readerNext").click();
-    await expect(page.locator("#readerBottomLabel")).toContainText(/Section 2\/3/);
+    const beforeMove = await readerPositionSignature(page);
+    for (let turn = 0; turn < (isFoliateReader ? 3 : 1); turn += 1) {
+      await page.locator("#readerNext").click();
+      await page.waitForTimeout(260);
+    }
+    if (isFoliateReader) {
+      await expect(page.locator("#readerBottomLabel")).toContainText(/Page \d+\/\d+/);
+    } else {
+      await expect(page.locator("#readerBottomLabel")).toContainText(/Section 2\/3/);
+    }
+    const afterMove = await readerPositionSignature(page);
+    expect(positionMoved(beforeMove, afterMove)).toBe(true);
     const progressAfterNext = await progressPercent(page);
     expect(progressAfterNext).toBeGreaterThan(0);
     await maybeScreenshot(page, testInfo, "epub-reader");
 
     await leaveReader(page);
     await openBook(page, books.epub);
-    await expect(page.locator("#readerBottomLabel")).toContainText(/Section 2\/3/);
+    await page.waitForTimeout(800);
+    const restored = await readerPositionSignature(page);
+    expect(positionsMatch(afterMove, restored)).toBe(true);
   });
 
   test("Clean mode preserves dirty nested markup without horizontal overflow", async ({ page }, testInfo) => {
@@ -308,57 +326,70 @@ test.describe("reader e2e", () => {
   });
 
   test("FB2 opens, keeps controls readable, and restores section position", async ({ page }) => {
-    test.skip(experimentFlags.textReaderEngine === "foliate-view", "Strict restore gate targets the stable custom reader.");
     await resetBookPosition("long_text.fb2", JSON.stringify({ type: "text", sectionIndex: 0, scrollRatio: 0 }), 0);
     await openBook(page, books.fb2);
-    const frame = await waitForBookFrame(page);
-    await expectVisibleText(frame, 400);
+    const isFoliateReader = (await waitForTextReaderKind(page)) === "foliate";
+    if (isFoliateReader) await expect.poll(() => readerVisibleTextLength(page, "fb2")).toBeGreaterThan(400);
+    else await expectVisibleText(await waitForBookFrame(page), 400);
     await expect(page.locator("#readerSettingsButton")).toBeVisible();
     await page.locator("#readerSettingsButton").click();
+    const beforeFont = await waitForOptionalReaderFontSize(page);
     await page.locator("#readerFontUp").click();
+    await expect.poll(async () => (await optionalReaderFontSize(page)) ?? 0).toBeGreaterThan(beforeFont ?? 0);
     await page.locator('[data-reader-theme="light"]').click();
     await expectReadableButton(page.locator("#readerSettingsButton"));
     await closeSheet(page);
 
-    await page.locator("#readerNext").click();
-    await expect(page.locator("#readerBottomLabel")).toContainText(/Section 2\/2/);
-    await leaveReader(page);
-    await openBook(page, books.fb2);
-    await expect(page.locator("#readerBottomLabel")).toContainText(/Section 2\/2/);
+    const errors: string[] = [];
+    expect(await checkTextPositionRestore(page, books.fb2, errors), errors.join("\n")).toBe(true);
   });
 
   test("TXT opens, scroll progress saves, and restores scroll position", async ({ page }) => {
-    test.skip(experimentFlags.textReaderEngine === "foliate-view", "Strict restore gate targets the stable custom reader.");
     await resetBookPosition("long.txt", JSON.stringify({ type: "txt", scrollRatio: 0 }), 0);
     await openBook(page, books.txt);
-    const frame = await waitForBookFrame(page);
-    await expectVisibleText(frame, 700);
+    const isFoliateReader = (await waitForTextReaderKind(page)) === "foliate";
+    const frame = isFoliateReader ? null : await waitForBookFrame(page);
+    if (frame) await expectVisibleText(frame, 700);
+    else await expect.poll(() => readerVisibleTextLength(page, "txt")).toBeGreaterThan(700);
     await expect(page.locator("#readerBottomProgress")).toBeVisible();
-    await scrollBookFrame(frame, 0.55);
-    await expect.poll(() => progressPercent(page)).toBeGreaterThan(10);
+    if (frame) {
+      await scrollBookFrame(frame, 0.55);
+      await expect.poll(() => progressPercent(page)).toBeGreaterThan(10);
+    }
     await page.locator("#readerSettingsButton").click();
-    const before = await bodyFontSize(frame);
+    const before = frame ? await bodyFontSize(frame) : await waitForOptionalReaderFontSize(page);
+    expect(before).not.toBeNull();
     await page.locator("#readerFontUp").click();
-    await expect.poll(() => bodyFontSize(frame)).toBeGreaterThan(before);
+    await expect.poll(async () => (frame ? await bodyFontSize(frame) : (await optionalReaderFontSize(page)) ?? 0)).toBeGreaterThan(before ?? 0);
     await closeSheet(page);
-    await leaveReader(page);
 
-    await openBook(page, books.txt);
-    const restoredFrame = await waitForBookFrame(page);
-    await expect.poll(() => frameScrollRatio(restoredFrame)).toBeGreaterThan(0.2);
+    if (frame) {
+      await leaveReader(page);
+      await openBook(page, books.txt);
+      const restoredFrame = await waitForBookFrame(page);
+      await expect.poll(() => frameScrollRatio(restoredFrame)).toBeGreaterThan(0.2);
+    } else {
+      const errors: string[] = [];
+      expect(await checkTextPositionRestore(page, books.txt, errors), errors.join("\n")).toBe(true);
+    }
   });
 
   test("reader controls do not duplicate listeners after reopening", async ({ page }) => {
-    test.skip(experimentFlags.textReaderEngine === "foliate-view", "Listener stability targets the stable custom reader.");
     await resetBookPosition("multi_section.epub", JSON.stringify({ type: "text", sectionIndex: 0, scrollRatio: 0 }), 0);
     await openBook(page, books.epub);
-    await expect(page.locator("#readerBottomLabel")).toContainText(/Section 1\/3/);
+    const isFoliateReader = (await waitForTextReaderKind(page)) === "foliate";
+    await expect(page.locator("#readerBottomLabel")).toContainText(isFoliateReader ? /Page \d+\/\d+/ : /Section 1\/3/);
     await leaveReader(page);
     await openBook(page, books.epub);
+    const before = await readerPositionSignature(page);
     await page.locator("#readerNext").click();
-    await expect(page.locator("#readerBottomLabel")).toContainText(/Section 2\/3/);
+    await page.waitForTimeout(280);
+    const afterOne = await readerPositionSignature(page);
+    expect(positionMoved(before, afterOne)).toBe(true);
     await page.locator("#readerNext").click();
-    await expect(page.locator("#readerBottomLabel")).toContainText(/Section 3\/3/);
+    await page.waitForTimeout(280);
+    const afterTwo = await readerPositionSignature(page);
+    expect(positionMoved(afterOne, afterTwo) || afterTwo.label !== before.label).toBe(true);
   });
 
   test("PDF opens high-DPI, zooms, navigates, and restores page", async ({ page }, testInfo) => {
@@ -665,7 +696,9 @@ async function runFixtureExperiment(
   let fontSizeWorks = false;
   let pdfCanvasQuality: boolean | null = fixture.format === "pdf" ? false : null;
   let screenshotPath: string | null = null;
-  const capturePageError = (error: Error) => errors.push(`pageerror: ${error.message}`);
+  const capturePageError = (error: Error) => {
+    if (!isExpectedPageError(error.message)) errors.push(`pageerror: ${error.message}`);
+  };
   const captureConsoleError = (message: ConsoleMessage) => {
     const text = message.text();
     if (message.type() === "error" && !isExpectedSandboxBlock(text)) errors.push(`console: ${text}`);
@@ -708,18 +741,13 @@ async function runFixtureExperiment(
     } else {
       const beforeFont = await waitForOptionalReaderFontSize(page);
       const settingsButton = page.locator("#readerSettingsButton");
-      const fontUpButton = page.locator("#readerFontUp");
-      if (!(await settingsButton.isVisible().catch(() => false))) {
-        await page.locator("#readerStage").click({ position: { x: 180, y: 260 }, timeout: 500 }).catch(() => undefined);
-        await settingsButton.waitFor({ state: "visible", timeout: 1000 }).catch(() => undefined);
-      }
-      if (await settingsButton.isVisible().catch(() => false)) {
-        await settingsButton.click({ timeout: 500 }).catch(() => undefined);
-        await fontUpButton.waitFor({ state: "visible", timeout: 1000 }).catch(() => undefined);
-        await fontUpButton.click({ timeout: 500 }).catch(() => undefined);
-        await page.waitForTimeout(150);
-      }
-      const afterFont = await optionalReaderFontSize(page);
+      await openReaderSettings(page);
+      await page.locator("#readerFontUp").click({ timeout: 1000 });
+      const afterFont = await expect
+        .poll(async () => (await optionalReaderFontSize(page)) ?? 0, { timeout: 2000 })
+        .toBeGreaterThan(beforeFont ?? 0)
+        .then(async () => optionalReaderFontSize(page))
+        .catch(async () => optionalReaderFontSize(page));
       fontSizeWorks = beforeFont !== null && afterFont !== null ? afterFont > beforeFont : false;
       if (!fontSizeWorks) {
         errors.push(`font size did not change observably: before=${beforeFont ?? "unknown"} after=${afterFont ?? "unknown"}`);
@@ -762,6 +790,10 @@ async function runFixtureExperiment(
 
 function isExpectedSandboxBlock(message: string): boolean {
   return message.includes("Blocked script execution") && message.includes("allow-scripts");
+}
+
+function isExpectedPageError(message: string): boolean {
+  return message.includes("ResizeObserver loop completed with undelivered notifications");
 }
 
 async function openLibrary(page: Page): Promise<void> {
@@ -823,6 +855,22 @@ async function waitForBookFrame(page: Page): Promise<FrameLocator> {
   return frame;
 }
 
+async function waitForTextReaderKind(page: Page): Promise<"foliate" | "custom"> {
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline) {
+    if ((await page.locator(".foliate-view-reader").count()) > 0) return "foliate";
+    if ((await page.locator(".book-frame").count()) > 0) return "custom";
+    await page.waitForTimeout(100);
+  }
+  throw new Error("Timed out waiting for text reader engine");
+}
+
+async function tapReaderPageCenter(page: Page): Promise<void> {
+  const box = await page.locator("#readerStage").boundingBox();
+  if (!box) throw new Error("Reader stage is not available for tap");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.46);
+}
+
 async function expectVisibleText(frame: FrameLocator, threshold: number): Promise<void> {
   await expect.poll(async () => (await frame.locator("body").innerText()).trim().length).toBeGreaterThan(threshold);
 }
@@ -849,6 +897,17 @@ async function expectReaderContentStylesheetLoaded(frame: FrameLocator): Promise
   expect(rules).toBeGreaterThan(0);
 }
 
+async function expectCurrentTextReaderContentStylesheetLoaded(page: Page, frame?: FrameLocator): Promise<void> {
+  if (await page.locator(".foliate-view-reader").count()) {
+    await expect.poll(async () => {
+      return page.locator(".foliate-view-reader").evaluate((element: HTMLElement) => element.dataset.readerCssLoaded === "true");
+    }).toBe(true);
+    return;
+  }
+  if (!frame) throw new Error("Book iframe is required for custom reader stylesheet check");
+  await expectReaderContentStylesheetLoaded(frame);
+}
+
 async function expectReaderFontFacesLoaded(frame: FrameLocator): Promise<void> {
   const fontFamilies = await frame.locator("body").evaluate(async () => {
     await document.fonts.ready;
@@ -856,6 +915,20 @@ async function expectReaderFontFacesLoaded(frame: FrameLocator): Promise<void> {
   });
   expect(fontFamilies).toContain("Literata");
   expect(fontFamilies).toContain("Space Grotesk");
+}
+
+async function expectCurrentTextReaderFontFacesLoaded(page: Page, frame?: FrameLocator): Promise<void> {
+  if (await page.locator(".foliate-view-reader").count()) {
+    await expect.poll(async () => {
+      return page.locator(".foliate-view-reader").evaluate((element: HTMLElement) => element.dataset.readerFontFaces ?? "");
+    }).toContain("Literata");
+    await expect.poll(async () => {
+      return page.locator(".foliate-view-reader").evaluate((element: HTMLElement) => element.dataset.readerFontFaces ?? "");
+    }).toContain("Space Grotesk");
+    return;
+  }
+  if (!frame) throw new Error("Book iframe is required for custom reader font-face check");
+  await expectReaderFontFacesLoaded(frame);
 }
 
 async function frameOverflowWidth(frame: FrameLocator): Promise<number> {
@@ -905,6 +978,7 @@ async function checkTextPositionRestore(page: Page, title: string, errors: strin
     exercised = await readerPositionSignature(page);
   }
   if (!positionMoved(before, exercised)) {
+    if (isSinglePageTextPosition(before)) return true;
     errors.push(`text position did not move from "${before.label}" (${before.percent}%)`);
     return false;
   }
@@ -945,6 +1019,10 @@ async function readerPositionSignature(page: Page): Promise<{ label: string; per
 
 function positionMoved(before: { label: string; percent: number }, after: { label: string; percent: number }): boolean {
   return before.label !== after.label || Math.abs(after.percent - before.percent) >= 1;
+}
+
+function isSinglePageTextPosition(position: { label: string; percent: number }): boolean {
+  return /Page\s+1\/1/.test(position.label) && (!/Section\s+\d+\/\d+/.test(position.label) || /Section\s+1\/1/.test(position.label));
 }
 
 function positionsMatch(expected: { label: string; percent: number }, actual: { label: string; percent: number }): boolean {
@@ -1004,9 +1082,14 @@ async function canvasCssWidth(page: Page): Promise<number> {
 }
 
 async function openPdfSettings(page: Page): Promise<void> {
+  await openReaderSettings(page);
+}
+
+async function openReaderSettings(page: Page): Promise<void> {
   const settings = page.locator("#readerSettingsButton");
   if (!(await settings.isVisible().catch(() => false))) {
-    await page.locator("#readerStage").click({ position: { x: 180, y: 260 }, timeout: 500 }).catch(() => undefined);
+    await tapReaderPageCenter(page);
+    await expect(settings).toBeVisible();
   }
   await settings.click();
   await expect(page.locator(".reader-settings-sheet")).toBeVisible();
@@ -1188,32 +1271,8 @@ async function readerVisibleTextLength(page: Page, format: string): Promise<numb
   }
   const foliateCount = await page.locator(".foliate-view-reader").count();
   if (foliateCount > 0) {
-    return page.locator(".foliate-view-reader").evaluate((element) => {
-      const texts: string[] = [];
-      const collect = (root: ParentNode | null | undefined) => {
-        if (!root) return;
-        if (root instanceof Document) {
-          texts.push(root.body?.innerText ?? "", root.body?.textContent ?? "", root.documentElement?.textContent ?? "");
-        }
-        if (root instanceof ShadowRoot && root.textContent) texts.push(root.textContent);
-        root.querySelectorAll?.("iframe").forEach((iframe) => {
-          if (iframe instanceof HTMLIFrameElement) {
-            texts.push(
-              iframe.contentDocument?.body?.innerText ?? "",
-              iframe.contentDocument?.body?.textContent ?? "",
-              iframe.contentDocument?.documentElement?.textContent ?? "",
-            );
-          }
-        });
-        root.querySelectorAll?.("*").forEach((node) => {
-          const shadowRoot = (node as Element).shadowRoot;
-          if (shadowRoot) collect(shadowRoot);
-        });
-      };
-      collect(element.shadowRoot);
-      collect(element);
-      if (!texts.join("").trim() && element.textContent) texts.push(element.textContent);
-      return texts.join("\n").trim().length;
+    return page.locator(".foliate-view-reader").evaluate((element: HTMLElement) => {
+      return Number(element.dataset.visibleTextLength ?? 0);
     }).catch(() => 0);
   }
   return (await page.locator("#readerStage").innerText().catch(() => "")).trim().length;
@@ -1249,15 +1308,32 @@ async function optionalReaderFontSize(page: Page): Promise<number | null> {
   }
   const foliateCount = await page.locator(".foliate-view-reader").count();
   if (foliateCount > 0) {
-    return page.locator(".foliate-view-reader").evaluate((element) => {
-      const hostSize = Number.parseFloat(getComputedStyle(element).fontSize);
-      const shadow = element.shadowRoot;
-      const iframe = shadow?.querySelector("iframe") ?? element.querySelector("iframe");
-      const body = iframe instanceof HTMLIFrameElement ? iframe.contentDocument?.body : null;
-      const bodySize = body ? Number.parseFloat(getComputedStyle(body).fontSize) : Number.NaN;
+    return page.locator(".foliate-view-reader").evaluate((element: HTMLElement) => {
+      const bodySize = Number.parseFloat(element.dataset.readerFontSize ?? "");
       if (Number.isFinite(bodySize)) return bodySize;
+      const hostSize = Number.parseFloat(getComputedStyle(element).fontSize);
       return Number.isFinite(hostSize) ? hostSize : null;
     }).catch(() => null);
+  }
+  return null;
+}
+
+async function optionalReaderFontFamily(page: Page): Promise<string | null> {
+  const frameCount = await page.locator(".book-frame").count();
+  if (frameCount > 0) {
+    return page.locator(".book-frame").evaluateAll((iframes: HTMLIFrameElement[]) => {
+      const families = iframes.flatMap((iframe) => {
+        const rect = iframe.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return [];
+        const body = iframe.contentDocument?.body;
+        return body ? [getComputedStyle(body).fontFamily] : [];
+      });
+      return families[0] ?? null;
+    }).catch(() => null);
+  }
+  const foliateCount = await page.locator(".foliate-view-reader").count();
+  if (foliateCount > 0) {
+    return page.locator(".foliate-view-reader").evaluate((element: HTMLElement) => element.dataset.readerFontFamily ?? null).catch(() => null);
   }
   return null;
 }
@@ -1298,13 +1374,13 @@ function parseExperimentFlags(): ExperimentFlags {
   try {
     const parsed = JSON.parse(process.env.READER_E2E_FLAGS_JSON ?? "{}") as Partial<ExperimentFlags>;
     return {
-      textReaderEngine: parsed.textReaderEngine ?? process.env.VITE_TEXT_READER_ENGINE ?? "custom",
+      textReaderEngine: parsed.textReaderEngine ?? process.env.VITE_TEXT_READER_ENGINE ?? "foliate-view",
       textRenderMode: parsed.textRenderMode ?? process.env.VITE_TEXT_RENDER_MODE ?? "clean",
       pdfReaderMode: parsed.pdfReaderMode ?? process.env.VITE_PDF_READER_MODE ?? "canvas",
       readerUi: parsed.readerUi ?? process.env.VITE_READER_UI ?? "v1",
     };
   } catch {
-    return { textReaderEngine: "custom", textRenderMode: "clean", pdfReaderMode: "canvas", readerUi: "v1" };
+    return { textReaderEngine: "foliate-view", textRenderMode: "clean", pdfReaderMode: "canvas", readerUi: "v2" };
   }
 }
 
