@@ -373,12 +373,16 @@ textarea:focus-visible {
   display: block;
   flex-shrink: 0;
   overflow: hidden;
-  border: 1px solid rgba(255, 214, 170, 0.2);
+  border: 1px solid rgba(255, 218, 170, 0.24);
   background:
-    radial-gradient(circle at 72% 16%, rgba(255, 217, 166, 0.18), transparent 24%),
-    radial-gradient(circle at 20% 78%, rgba(139, 155, 255, 0.14), transparent 32%),
-    linear-gradient(145deg, #5a3b50, #2b2230 58%, #11141c);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    linear-gradient(90deg, rgba(0, 0, 0, 0.28) 0 9px, transparent 9px),
+    radial-gradient(circle at 76% 14%, rgba(255, 230, 182, 0.26), transparent 24%),
+    radial-gradient(circle at 18% 82%, rgba(139, 155, 255, 0.16), transparent 34%),
+    linear-gradient(145deg, #6d4b5b, #302334 58%, #11141c);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 12px 0 18px rgba(0, 0, 0, 0.16),
+    0 10px 24px rgba(0, 0, 0, 0.16);
 }
 
 .hero-cover {
@@ -407,42 +411,47 @@ textarea:focus-visible {
 
 .tone-1 {
   background:
-    radial-gradient(circle at 70% 18%, rgba(255, 226, 184, 0.16), transparent 24%),
-    radial-gradient(circle at 18% 80%, rgba(176, 105, 84, 0.2), transparent 32%),
-    linear-gradient(145deg, #60414d, #2d202c 58%, #15121b);
+    linear-gradient(90deg, rgba(0, 0, 0, 0.28) 0 9px, transparent 9px),
+    radial-gradient(circle at 70% 18%, rgba(255, 226, 184, 0.24), transparent 24%),
+    radial-gradient(circle at 18% 80%, rgba(176, 105, 84, 0.24), transparent 32%),
+    linear-gradient(145deg, #744a55, #30212d 58%, #15121b);
   border-color: rgba(255, 200, 162, 0.18);
 }
 
 .tone-2 {
   background:
-    radial-gradient(circle at 70% 18%, rgba(255, 236, 195, 0.14), transparent 24%),
-    radial-gradient(circle at 16% 74%, rgba(119, 164, 148, 0.22), transparent 30%),
-    linear-gradient(145deg, #32515a, #1d2b31 58%, #10171c);
+    linear-gradient(90deg, rgba(0, 0, 0, 0.28) 0 9px, transparent 9px),
+    radial-gradient(circle at 70% 18%, rgba(255, 236, 195, 0.2), transparent 24%),
+    radial-gradient(circle at 16% 74%, rgba(119, 164, 148, 0.26), transparent 30%),
+    linear-gradient(145deg, #3c6370, #1f3037 58%, #10171c);
   border-color: rgba(173, 219, 196, 0.18);
 }
 
 .tone-3 {
   background:
-    radial-gradient(circle at 72% 16%, rgba(255, 231, 173, 0.14), transparent 25%),
-    radial-gradient(circle at 18% 82%, rgba(158, 136, 79, 0.24), transparent 32%),
-    linear-gradient(145deg, #4a5034, #252a1e 58%, #11150f);
+    linear-gradient(90deg, rgba(0, 0, 0, 0.28) 0 9px, transparent 9px),
+    radial-gradient(circle at 72% 16%, rgba(255, 231, 173, 0.22), transparent 25%),
+    radial-gradient(circle at 18% 82%, rgba(158, 136, 79, 0.28), transparent 32%),
+    linear-gradient(145deg, #62643a, #2a301f 58%, #11150f);
   border-color: rgba(226, 203, 135, 0.18);
 }
 
 .tone-4 {
   background:
-    radial-gradient(circle at 72% 16%, rgba(255, 226, 181, 0.15), transparent 25%),
-    radial-gradient(circle at 18% 80%, rgba(196, 118, 86, 0.21), transparent 30%),
-    linear-gradient(145deg, #654833, #322518 58%, #18120c);
+    linear-gradient(90deg, rgba(0, 0, 0, 0.28) 0 9px, transparent 9px),
+    radial-gradient(circle at 72% 16%, rgba(255, 226, 181, 0.24), transparent 25%),
+    radial-gradient(circle at 18% 80%, rgba(196, 118, 86, 0.26), transparent 30%),
+    linear-gradient(145deg, #785336, #382719 58%, #18120c);
   border-color: rgba(237, 179, 119, 0.18);
 }
 
 .cover-stripes {
   position: absolute;
+  z-index: 1;
   inset: 0;
   background:
     linear-gradient(180deg, transparent 0 52%, rgba(0, 0, 0, 0.22) 100%),
-    repeating-linear-gradient(118deg, transparent 0 10px, rgba(255, 255, 255, 0.045) 10px 11px);
+    repeating-linear-gradient(118deg, transparent 0 10px, rgba(255, 255, 255, 0.048) 10px 11px);
 }
 
 .cover-spine {
@@ -451,12 +460,14 @@ textarea:focus-visible {
   bottom: 0;
   left: 0;
   width: 4px;
+  z-index: 2;
   background: var(--accent);
   opacity: 0.5;
 }
 
 .cover-title {
   position: absolute;
+  z-index: 3;
   right: 8px;
   bottom: 22px;
   left: 10px;
@@ -474,6 +485,7 @@ textarea:focus-visible {
 
 .cover-author {
   position: absolute;
+  z-index: 3;
   right: 8px;
   bottom: 9px;
   left: 10px;
@@ -489,7 +501,7 @@ textarea:focus-visible {
   position: absolute;
   top: 8px;
   right: 8px;
-  z-index: 1;
+  z-index: 4;
   max-width: calc(100% - 20px);
   overflow: hidden;
   border: 1px solid rgba(237, 239, 245, 0.24);
@@ -505,9 +517,10 @@ textarea:focus-visible {
 
 .cover-initials {
   position: absolute;
+  z-index: 2;
   top: 28px;
   left: 10px;
-  color: rgba(237, 239, 245, 0.24);
+  color: rgba(237, 239, 245, 0.3);
   font-size: 28px;
   font-weight: 700;
   letter-spacing: 0;
@@ -524,7 +537,7 @@ textarea:focus-visible {
 .cover-image {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 6;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -534,9 +547,11 @@ textarea:focus-visible {
 .cover-loading::after {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 5;
   content: "";
-  background: linear-gradient(90deg, #1a1e2b 0%, #242a3c 48%, #1a1e2b 100%);
+  background:
+    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.12) 48%, transparent 100%),
+    rgba(12, 15, 22, 0.18);
   background-size: 220% 100%;
   animation: shimmer 1.2s linear infinite;
 }
@@ -547,7 +562,7 @@ textarea:focus-visible {
 
 .cover-progress {
   position: absolute;
-  z-index: 4;
+  z-index: 7;
   right: 0;
   bottom: 0;
   left: 0;
@@ -1815,24 +1830,24 @@ body.reader-light .reader {
 }
 
 body.reader-sepia .reader {
-  --surface: #211a13;
-  --surface-2: #2d241a;
-  --surface-3: #372c20;
-  --text: #f2dfc3;
-  --muted: #c2ad8e;
-  --line: #5a4732;
-  --accent: #d6a15f;
-  --accent-border: #d6a15f;
-  --accent-soft: rgba(214, 161, 95, 0.2);
-  --button-bg: #33281d;
-  --button-bg-pressed: #463521;
-  --button-text: #f4e3c9;
-  --button-muted-text: #d0b994;
-  --button-border: #5a4732;
-  --button-disabled-bg: #251d15;
-  --button-disabled-text: #8e7a5f;
-  --button-ghost-bg: #261f17;
-  --button-ghost-text: #f4e3c9;
+  --surface: #302316;
+  --surface-2: #3b2b1b;
+  --surface-3: #463522;
+  --text: #f3dfbc;
+  --muted: #c9ad82;
+  --line: #6d5534;
+  --accent: #c8863e;
+  --accent-border: #b97632;
+  --accent-soft: rgba(200, 134, 62, 0.22);
+  --button-bg: #3c2c1c;
+  --button-bg-pressed: #513a21;
+  --button-text: #f5e1bf;
+  --button-muted-text: #d6bc91;
+  --button-border: #6d5534;
+  --button-disabled-bg: #2a1f14;
+  --button-disabled-text: #9d835d;
+  --button-ghost-bg: #352719;
+  --button-ghost-text: #f5e1bf;
 }
 
 body:not(.reader-light):not(.reader-sepia) .reader {
@@ -2317,9 +2332,9 @@ body.reader-light .reader-settings-sheet .sort-button.active {
 }
 
 body.reader-sepia .reader-settings-sheet .sort-button.active {
-  border-color: #d6a15f;
-  background: #3f2d1e;
-  color: #f7e8cf;
+  border-color: #d39a57;
+  background: #704d29;
+  color: #fff0d0;
 }
 
 .reader-settings-sheet .secondary,
@@ -2374,7 +2389,7 @@ body.reader-sepia .reader-settings-sheet .sort-button.active {
 }
 
 .pdf-canvas[data-pdf-theme="sepia"] {
-  filter: sepia(0.36) saturate(0.86) brightness(0.94) contrast(0.96);
+  filter: sepia(0.44) saturate(0.78) brightness(0.84) contrast(1.02);
 }
 
 body.reader-light .pdf-canvas {

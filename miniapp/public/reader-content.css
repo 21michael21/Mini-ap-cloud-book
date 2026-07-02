@@ -132,8 +132,8 @@ html.reader-theme-light body {
 }
 
 html.reader-theme-sepia body {
-  background: #211a13;
-  color: #f2dfc3;
+  background: #b99a6a;
+  color: #2b2117;
 }
 
 .reader-article {
@@ -230,7 +230,7 @@ html.reader-theme-sepia h3,
 html.reader-theme-sepia h4,
 html.reader-theme-sepia h5,
 html.reader-theme-sepia h6 {
-  color: #ffe8c6;
+  color: #24190f;
 }
 
 h1 {
@@ -299,7 +299,7 @@ html.reader-theme-dark a {
 }
 
 html.reader-theme-sepia a {
-  color: #e0b36f;
+  color: #5b3715;
 }
 
 blockquote {
@@ -315,8 +315,8 @@ html.reader-theme-dark blockquote {
 }
 
 html.reader-theme-sepia blockquote {
-  border-left-color: #c89454;
-  color: #514535;
+  border-left-color: #805928;
+  color: #44331f;
 }
 
 ul,
@@ -352,8 +352,8 @@ html.reader-theme-dark code {
 
 html.reader-theme-sepia pre,
 html.reader-theme-sepia code {
-  background: #33281d;
-  color: #f4e3c9;
+  background: #9f8054;
+  color: #24190f;
 }
 
 code {
@@ -420,18 +420,18 @@ html.reader-theme-dark .reader-empty-section {
 }
 
 html.reader-theme-sepia th {
-  background: #33281d;
+  background: #a98758;
 }
 
 html.reader-theme-sepia th,
 html.reader-theme-sepia td,
 html.reader-theme-sepia .reader-empty-section {
-  border-color: #5a4732;
+  border-color: #806038;
 }
 
 html.reader-theme-sepia .reader-empty-section {
-  background: #2d241a;
-  color: #d0b994;
+  background: #ab8c5f;
+  color: #3f2d1a;
 }
 
 html.reader-theme-dark figcaption {
@@ -439,7 +439,7 @@ html.reader-theme-dark figcaption {
 }
 
 html.reader-theme-sepia figcaption {
-  color: #c8ad84;
+  color: #5d472c;
 }
 
 .reader-empty-section {
