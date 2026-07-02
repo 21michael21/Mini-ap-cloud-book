@@ -325,6 +325,25 @@ test.describe("reader e2e", () => {
     await expect(page.locator("#iosAutoZoomTextareaProbe")).toHaveComputedFontSizeAtLeast(16);
   });
 
+  test("perf debug overlay can be enabled without breaking navigation", async ({ page }) => {
+    await page.addInitScript(() => window.localStorage.setItem("telegram-library-debug-perf", "1"));
+    await page.goto("/?debugPerf=1");
+    await expect(page.locator("#perfOverlay")).toBeVisible();
+    await expect(page.locator("#homeNav")).toBeVisible();
+    await page.locator("#libraryNav").click();
+    await expect(page.locator("#searchInput")).toBeVisible();
+    await expect(page.locator("#perfOverlay")).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const perf = (window as unknown as { TelegramLibraryPerf?: { reportPerfSummary: () => { entries: unknown[] } } })
+            .TelegramLibraryPerf;
+          return perf?.reportPerfSummary().entries.length ?? 0;
+        }),
+      )
+      .toBeGreaterThan(0);
+  });
+
   test("FB2 opens, keeps controls readable, and restores section position", async ({ page }) => {
     await resetBookPosition("long_text.fb2", JSON.stringify({ type: "text", sectionIndex: 0, scrollRatio: 0 }), 0);
     await openBook(page, books.fb2);

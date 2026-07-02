@@ -12,7 +12,10 @@ import {
   openPdfReader,
 } from "./readerCore";
 import { readerFeatureFlags } from "./featureFlags";
+import { mark, measure, reportPerfSummary } from "./perf";
 import "./styles.css";
+
+mark("app_init_start");
 
 type Book = {
   id: number;
@@ -130,9 +133,13 @@ let positionSaveErrorShown = false;
 const coverObjectUrlCache = new Map<string, string>();
 const coverCacheKeyByBookId = new Map<number, string>();
 const pendingCoverFetches = new Map<string, Promise<string | null>>();
+let firstRenderDone = false;
+let searchRenderFrame = 0;
 
 function init() {
   tg?.ready?.();
+  mark("telegram_ready");
+  measure("telegram_ready", "app_init_start", "telegram_ready");
   tg?.expand?.();
   document.body.classList.add("dark");
   window.addEventListener("pagehide", revokeAllCoverObjectUrls);
@@ -175,7 +182,11 @@ async function loadHome() {
   errorMessage = null;
   render();
   try {
-    const [home, allBooks] = await Promise.all([api<Home>("/api/home"), api<Book[]>("/api/books")]);
+    mark("home_fetch_start");
+    const [home, allBooks] = await Promise.all([api<Home>("/api/home"), api<Book[]>("/api/books")]).finally(() => {
+      mark("home_fetch_end");
+      measure("home_fetch", "home_fetch_start", "home_fetch_end");
+    });
     homeState = home;
     foldersState = home.folders;
     allBooksState = allBooks;
@@ -196,10 +207,14 @@ async function loadBooks(scope: LibraryScope = selectedFolderId) {
   errorMessage = null;
   render();
   try {
+    mark("library_fetch_start");
     const [allBooks, folders] = await Promise.all([
       api<Book[]>(`/api/books?sort=${encodeURIComponent(librarySort)}`),
       api<Folder[]>("/api/folders"),
-    ]);
+    ]).finally(() => {
+      mark("library_fetch_end");
+      measure("library_fetch", "library_fetch_start", "library_fetch_end");
+    });
     allBooksState = allBooks;
     foldersState = folders;
     booksState = filterBooks(allBooksState);
@@ -589,6 +604,17 @@ function render() {
   bindSheetControls();
   bindCoverImages();
   pruneCoverObjectUrls();
+  markFirstRenderDone();
+}
+
+function markFirstRenderDone(): void {
+  if (firstRenderDone) return;
+  firstRenderDone = true;
+  window.requestAnimationFrame(() => {
+    mark("first_render_done");
+    measure("app_init_to_first_render", "app_init_start", "first_render_done");
+    reportPerfSummary();
+  });
 }
 
 function renderTopbar(title: string): string {
@@ -1459,12 +1485,22 @@ async function fetchCoverObjectUrl(path: string, bookId: number, coverKey: strin
   const pending = pendingCoverFetches.get(coverKey);
   if (pending) return pending;
   const request = (async () => {
-    const response = await fetch(apiUrl(path), { headers: headers() });
+    const start = `cover_fetch_start:${bookId}`;
+    const end = `cover_fetch_end:${bookId}`;
+    mark(start);
+    let response: Response;
+    try {
+      response = await fetch(apiUrl(path), { headers: headers() });
+    } finally {
+      mark(end);
+      measure(`cover_fetch:${bookId}`, start, end);
+    }
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(`Cover request failed with HTTP ${response.status}`);
     const blob = await response.blob();
     if (!blob.type.toLowerCase().startsWith("image/")) return null;
     const objectUrl = URL.createObjectURL(blob);
+    mark(`cover_object_url_created:${bookId}`);
     storeCoverObjectUrl(bookId, coverKey, objectUrl);
     return objectUrl;
   })().finally(() => {
@@ -1560,12 +1596,19 @@ function bindLibraryControls() {
     });
   });
   document.querySelector("#searchInput")?.addEventListener("input", (event) => {
+    mark("search_input_start");
     searchQuery = (event.target as HTMLInputElement).value;
     booksState = filterBooks(allBooksState);
     render();
     const input = document.querySelector<HTMLInputElement>("#searchInput");
     input?.focus();
     input?.setSelectionRange(searchQuery.length, searchQuery.length);
+    if (searchRenderFrame) window.cancelAnimationFrame(searchRenderFrame);
+    searchRenderFrame = window.requestAnimationFrame(() => {
+      searchRenderFrame = 0;
+      mark("search_input_to_results_end");
+      measure("search_input_to_results", "search_input_start", "search_input_to_results_end");
+    });
   });
   document.querySelector("#clearSearch")?.addEventListener("click", clearSearch);
   document.querySelector("#clearSearchEmpty")?.addEventListener("click", clearSearch);
@@ -1968,6 +2011,7 @@ function openNote(book: Book, note: Note) {
 function openBookById(id: number, sourceText: string) {
   const book = findBook(id);
   if (!book) return;
+  mark("open_book_click");
   cleanupActiveReader(true);
   activeBook = book;
   positionSaveErrorShown = false;
@@ -2035,6 +2079,7 @@ function renderReader(book: Book) {
     void loadHome();
   });
   document.querySelector("#readerSettingsButton")?.addEventListener("click", () => {
+    mark("settings_open");
     hapticImpact();
     showReaderToolbar();
     document.querySelector("#readerSettingsButton")?.classList.remove("reader-aa-nudge");
@@ -2065,18 +2110,55 @@ function renderReader(book: Book) {
   }
 }
 
+async function timeReaderPositionFetch(bookId: number): Promise<{ locator: string } | null> {
+  mark("reader_position_fetch_start");
+  try {
+    return await api<{ locator: string } | null>(`/api/books/${bookId}/position`);
+  } finally {
+    mark("reader_position_fetch_end");
+    measure("reader_position_fetch", "reader_position_fetch_start", "reader_position_fetch_end");
+  }
+}
+
+async function fetchReaderFileWithPerf(book: Book, isPdf: boolean): Promise<File> {
+  mark("reader_file_fetch_start");
+  if (isPdf) mark("pdf_file_fetch_start");
+  try {
+    return await fetchBookFile(API_BASE, initData(), book);
+  } finally {
+    mark("reader_file_fetch_end");
+    measure("reader_file_fetch", "reader_file_fetch_start", "reader_file_fetch_end");
+    if (isPdf) {
+      mark("pdf_file_fetch_end");
+      measure("pdf_file_fetch", "pdf_file_fetch_start", "pdf_file_fetch_end");
+    }
+  }
+}
+
+function markReaderPaint(): void {
+  window.requestAnimationFrame(() => {
+    mark("first_reader_paint");
+    measure("open_book_to_first_reader_paint", "open_book_click", "first_reader_paint");
+    reportPerfSummary();
+  });
+}
+
 async function renderTextBook(book: Book) {
   const stage = document.querySelector<HTMLElement>("#readerStage")!;
   renderReaderLoading(stage);
   try {
-    const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
+    const pos = await timeReaderPositionFetch(book.id);
     const restoreLocator = activeReaderRestoreLocator ?? pos?.locator ?? null;
     activeReaderRestoreLocator = null;
-    const file = await fetchBookFile(API_BASE, initData(), book);
+    const file = await fetchReaderFileWithPerf(book, false);
     const shouldUsePaginated = readerTextMode === "pages" && readerFeatureFlags.textReaderEngine === "foliate-view";
+    mark("reader_engine_import_start");
     const openTextReader = shouldUsePaginated
       ? (await import("./readerEngines/foliateViewEngine")).openFoliateViewReader
       : openFoliateReader;
+    mark("reader_engine_import_end");
+    measure("reader_engine_import", "reader_engine_import_start", "reader_engine_import_end");
+    mark("reader_parse_start");
     const controller = await openTextReader(
       stage,
       file,
@@ -2098,16 +2180,20 @@ async function renderTextBook(book: Book) {
         renderMode: readerFeatureFlags.textRenderMode,
       },
     );
+    mark("reader_parse_end");
+    measure("reader_parse", "reader_parse_start", "reader_parse_end");
     bindTextReaderControls(controller);
+    markReaderPaint();
   } catch (error) {
     if (readerTextMode === "pages" && readerFeatureFlags.textReaderEngine === "foliate-view") {
       console.warn("Paginated text reader failed; falling back to scroll mode for this book.", error);
       try {
         renderReaderLoading(stage);
-        const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
+        const pos = await timeReaderPositionFetch(book.id);
         const restoreLocator = activeReaderRestoreLocator ?? pos?.locator ?? null;
         activeReaderRestoreLocator = null;
-        const file = await fetchBookFile(API_BASE, initData(), book);
+        const file = await fetchReaderFileWithPerf(book, false);
+        mark("reader_parse_start");
         const controller = await openFoliateReader(
           stage,
           file,
@@ -2129,7 +2215,10 @@ async function renderTextBook(book: Book) {
             renderMode: readerFeatureFlags.textRenderMode,
           },
         );
+        mark("reader_parse_end");
+        measure("reader_parse", "reader_parse_start", "reader_parse_end");
         bindTextReaderControls(controller);
+        markReaderPaint();
         showToast("Opened in Scroll fallback", "info");
         return;
       } catch (fallbackError) {
@@ -2145,14 +2234,18 @@ async function renderPdf(book: Book) {
   const stage = document.querySelector<HTMLElement>("#readerStage")!;
   renderReaderLoading(stage);
   try {
-    const pos = await api<{ locator: string } | null>(`/api/books/${book.id}/position`);
+    const pos = await timeReaderPositionFetch(book.id);
     const restoreLocator = activeReaderRestoreLocator ?? pos?.locator ?? null;
     activeReaderRestoreLocator = null;
-    const file = await fetchBookFile(API_BASE, initData(), book);
+    const file = await fetchReaderFileWithPerf(book, true);
     if (readerFeatureFlags.pdfReaderMode === "viewer-shell") {
       console.warn("PDF viewer-shell experiment is not implemented yet; using canvas reader.");
     }
+    mark("pdf_import_start");
+    mark("pdf_import_end");
+    measure("pdf_import", "pdf_import_start", "pdf_import_end");
     let pdfReader: PdfReaderController | null = null;
+    mark("reader_parse_start");
     pdfReader = await openPdfReader(
       stage,
       file,
@@ -2177,8 +2270,11 @@ async function renderPdf(book: Book) {
         },
       },
     );
+    mark("reader_parse_end");
+    measure("reader_parse", "reader_parse_start", "reader_parse_end");
 
     bindPdfReaderControls(pdfReader);
+    markReaderPaint();
   } catch (error) {
     renderReaderError(stage, book, error);
   }
@@ -2307,10 +2403,16 @@ function readerErrorCopy(error: unknown, book: Book): { title: string; message: 
 }
 
 async function savePosition(bookId: number, locator: string, percent: number) {
-  await api(`/api/books/${bookId}/position`, {
-    method: "PUT",
-    body: JSON.stringify({ locator, percent }),
-  });
+  mark("position_save_start");
+  try {
+    await api(`/api/books/${bookId}/position`, {
+      method: "PUT",
+      body: JSON.stringify({ locator, percent }),
+    });
+  } finally {
+    mark("position_save_end");
+    measure("position_save", "position_save_start", "position_save_end");
+  }
 }
 
 function savePositionSafely(bookId: number, locator: string, percent: number) {
@@ -2347,14 +2449,35 @@ function writeLibrarySort() {
   window.localStorage.setItem("telegram-library-sort", librarySort);
 }
 
+function measureSettingsChangeApply(work: () => void): void {
+  mark("settings_change_apply_start");
+  work();
+  window.requestAnimationFrame(() => {
+    mark("settings_change_apply_end");
+    measure("settings_change_apply_time", "settings_change_apply_start", "settings_change_apply_end");
+  });
+}
+
+async function measureSettingsChangeApplyAsync(work: () => Promise<void>): Promise<void> {
+  mark("settings_change_apply_start");
+  try {
+    await work();
+  } finally {
+    mark("settings_change_apply_end");
+    measure("settings_change_apply_time", "settings_change_apply_start", "settings_change_apply_end");
+  }
+}
+
 function setReaderTheme(theme: ReaderContentTheme) {
   if (readerTheme !== theme) hapticSelection();
-  readerTheme = theme;
-  window.localStorage.setItem("telegram-library-reader-theme", readerTheme);
-  applyReaderTheme();
-  activeTextReader?.setTheme(readerTheme);
-  activePdfReader?.setTheme(readerTheme);
-  scheduleReaderSettingsSync();
+  measureSettingsChangeApply(() => {
+    readerTheme = theme;
+    window.localStorage.setItem("telegram-library-reader-theme", readerTheme);
+    applyReaderTheme();
+    activeTextReader?.setTheme(readerTheme);
+    activePdfReader?.setTheme(readerTheme);
+    scheduleReaderSettingsSync();
+  });
 }
 
 function applyReaderTheme() {
@@ -2369,8 +2492,13 @@ function readReaderTheme(): ReaderContentTheme {
 }
 
 function toggleReaderToolbar() {
+  mark("toolbar_toggle_start");
   readerToolbarVisible = !readerToolbarVisible;
   updateReaderToolbarVisibility();
+  window.requestAnimationFrame(() => {
+    mark("toolbar_toggle_end");
+    measure("toolbar_toggle_time", "toolbar_toggle_start", "toolbar_toggle_end");
+  });
 }
 
 function showReaderToolbar() {
@@ -2392,94 +2520,110 @@ function changeReaderFontSize(delta: number) {
   const nextSize = clamp(readerFontSizePx + delta, 15, 26);
   if (nextSize === readerFontSizePx) return;
   hapticSelection();
-  readerFontSizePx = nextSize;
-  window.localStorage.setItem("telegram-library-reader-font-size", String(readerFontSizePx));
-  activeTextReader?.setFontSize(readerFontSizePx);
-  scheduleReaderSettingsSync();
+  measureSettingsChangeApply(() => {
+    readerFontSizePx = nextSize;
+    window.localStorage.setItem("telegram-library-reader-font-size", String(readerFontSizePx));
+    activeTextReader?.setFontSize(readerFontSizePx);
+    scheduleReaderSettingsSync();
+  });
 }
 
 function setReaderFontFamily(fontFamily: ReaderFontFamily) {
   if (readerFontFamily !== fontFamily) hapticSelection();
-  readerFontFamily = fontFamily;
-  window.localStorage.setItem("telegram-library-reader-font-family", readerFontFamily);
-  activeTextReader?.setFontFamily(readerFontFamily);
-  scheduleReaderSettingsSync();
+  measureSettingsChangeApply(() => {
+    readerFontFamily = fontFamily;
+    window.localStorage.setItem("telegram-library-reader-font-family", readerFontFamily);
+    activeTextReader?.setFontFamily(readerFontFamily);
+    scheduleReaderSettingsSync();
+  });
 }
 
 function setReaderLineSpacing(lineSpacing: ReaderLineSpacing) {
   if (readerLineSpacing !== lineSpacing) hapticSelection();
-  readerLineSpacing = lineSpacing;
-  window.localStorage.setItem("telegram-library-reader-line-spacing", readerLineSpacing);
-  activeTextReader?.setLineSpacing(readerLineSpacing);
-  scheduleReaderSettingsSync();
+  measureSettingsChangeApply(() => {
+    readerLineSpacing = lineSpacing;
+    window.localStorage.setItem("telegram-library-reader-line-spacing", readerLineSpacing);
+    activeTextReader?.setLineSpacing(readerLineSpacing);
+    scheduleReaderSettingsSync();
+  });
 }
 
 function setReaderMargin(margin: ReaderMargin) {
   if (readerMargin !== margin) hapticSelection();
-  readerMargin = margin;
-  window.localStorage.setItem("telegram-library-reader-margin", readerMargin);
-  activeTextReader?.setMargin(readerMargin);
-  scheduleReaderSettingsSync();
+  measureSettingsChangeApply(() => {
+    readerMargin = margin;
+    window.localStorage.setItem("telegram-library-reader-margin", readerMargin);
+    activeTextReader?.setMargin(readerMargin);
+    scheduleReaderSettingsSync();
+  });
 }
 
 function resetReaderTextSettings() {
   hapticSelection();
-  readerFontSizePx = 18;
-  readerFontFamily = "literata";
-  readerLineSpacing = "normal";
-  readerMargin = "normal";
-  readerTheme = "dark";
-  window.localStorage.setItem("telegram-library-reader-font-size", String(readerFontSizePx));
-  window.localStorage.setItem("telegram-library-reader-font-family", readerFontFamily);
-  window.localStorage.setItem("telegram-library-reader-line-spacing", readerLineSpacing);
-  window.localStorage.setItem("telegram-library-reader-margin", readerMargin);
-  window.localStorage.setItem("telegram-library-reader-theme", readerTheme);
-  window.localStorage.setItem("telegram-library-reader-text-mode", "pages");
-  readerTextMode = "pages";
-  applyReaderTheme();
-  activeTextReader?.setFontSize(readerFontSizePx);
-  activeTextReader?.setFontFamily(readerFontFamily);
-  activeTextReader?.setLineSpacing(readerLineSpacing);
-  activeTextReader?.setMargin(readerMargin);
-  activeTextReader?.setTheme(readerTheme);
-  activePdfReader?.setTheme(readerTheme);
-  scheduleReaderSettingsSync();
+  measureSettingsChangeApply(() => {
+    readerFontSizePx = 18;
+    readerFontFamily = "literata";
+    readerLineSpacing = "normal";
+    readerMargin = "normal";
+    readerTheme = "dark";
+    window.localStorage.setItem("telegram-library-reader-font-size", String(readerFontSizePx));
+    window.localStorage.setItem("telegram-library-reader-font-family", readerFontFamily);
+    window.localStorage.setItem("telegram-library-reader-line-spacing", readerLineSpacing);
+    window.localStorage.setItem("telegram-library-reader-margin", readerMargin);
+    window.localStorage.setItem("telegram-library-reader-theme", readerTheme);
+    window.localStorage.setItem("telegram-library-reader-text-mode", "pages");
+    readerTextMode = "pages";
+    applyReaderTheme();
+    activeTextReader?.setFontSize(readerFontSizePx);
+    activeTextReader?.setFontFamily(readerFontFamily);
+    activeTextReader?.setLineSpacing(readerLineSpacing);
+    activeTextReader?.setMargin(readerMargin);
+    activeTextReader?.setTheme(readerTheme);
+    activePdfReader?.setTheme(readerTheme);
+    scheduleReaderSettingsSync();
+  });
 }
 
 async function setReaderTextMode(mode: ReaderTextMode) {
   if (mode !== "pages" && mode !== "scroll") return;
   if (readerTextMode === mode) return;
   hapticSelection();
-  activeTextReader?.saveNow();
-  readerTextMode = mode;
-  window.localStorage.setItem("telegram-library-reader-text-mode", readerTextMode);
-  scheduleReaderSettingsSync();
-  if (activeBook && activeBook.format !== "pdf" && view === "reader") {
-    cleanupActiveReader(true);
-    renderReaderLoading(document.querySelector<HTMLElement>("#readerStage")!);
-    await renderTextBook(activeBook);
-  }
+  await measureSettingsChangeApplyAsync(async () => {
+    activeTextReader?.saveNow();
+    readerTextMode = mode;
+    window.localStorage.setItem("telegram-library-reader-text-mode", readerTextMode);
+    scheduleReaderSettingsSync();
+    if (activeBook && activeBook.format !== "pdf" && view === "reader") {
+      cleanupActiveReader(true);
+      renderReaderLoading(document.querySelector<HTMLElement>("#readerStage")!);
+      await renderTextBook(activeBook);
+    }
+  });
 }
 
 async function changePdfZoom(direction: -1 | 1) {
   const reader = activePdfReader;
   if (!reader) return;
   hapticSelection();
-  if (direction < 0) await reader.zoomOut();
-  else await reader.zoomIn();
-  pdfZoom = reader.getZoom();
-  window.localStorage.setItem("telegram-library-pdf-zoom", String(pdfZoom));
-  scheduleReaderSettingsSync();
+  await measureSettingsChangeApplyAsync(async () => {
+    if (direction < 0) await reader.zoomOut();
+    else await reader.zoomIn();
+    pdfZoom = reader.getZoom();
+    window.localStorage.setItem("telegram-library-pdf-zoom", String(pdfZoom));
+    scheduleReaderSettingsSync();
+  });
 }
 
 async function resetPdfZoom() {
   const reader = activePdfReader;
   if (!reader) return;
   hapticSelection();
-  pdfZoom = 1;
-  window.localStorage.setItem("telegram-library-pdf-zoom", String(pdfZoom));
-  await reader.setZoom(pdfZoom);
-  scheduleReaderSettingsSync();
+  await measureSettingsChangeApplyAsync(async () => {
+    pdfZoom = 1;
+    window.localStorage.setItem("telegram-library-pdf-zoom", String(pdfZoom));
+    await reader.setZoom(pdfZoom);
+    scheduleReaderSettingsSync();
+  });
 }
 
 function scheduleReaderSettingsSync() {

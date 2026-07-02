@@ -1,5 +1,6 @@
 import * as pdfjs from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
+import { mark, measure, timeAsync } from "./perf";
 
 export type Position = {
   locator: string;
@@ -413,8 +414,11 @@ export async function openPdfReader(
   onStatus?: (label: string) => void,
   options: PdfReaderOptions = {},
 ): Promise<PdfReaderController> {
+  mark("pdf_parse_start");
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+  mark("pdf_parse_end");
+  measure("pdf_parse", "pdf_parse_start", "pdf_parse_end");
   const pageShell = document.createElement("div");
   pageShell.className = "pdf-page-shell";
   pageShell.setAttribute("aria-live", "polite");
@@ -490,7 +494,6 @@ export async function openPdfReader(
   };
 
   const renderPageToCanvas = async (page: number, force = false, trimAroundPage = page): Promise<RenderedPdfPage> => {
-    const renderStartedAt = performance.now();
     const nextPageNumber = Math.min(Math.max(page, 1), pdf.numPages);
     const pdfPage = await pdf.getPage(nextPageNumber);
     const baseViewport = pdfPage.getViewport({ scale: 1 });
@@ -505,6 +508,11 @@ export async function openPdfReader(
     const cached = pageCache.get(cacheKey);
     if (cached && !force) return cached;
 
+    const perfStart = `pdf_page_render_start:${nextPageNumber}`;
+    const perfEnd = `pdf_page_render_end:${nextPageNumber}`;
+    mark("pdf_page_render_start");
+    mark(perfStart);
+    const renderStartedAt = performance.now();
     let renderCanvas = await renderPdfPageCanvas(pdfPage, viewport, cssWidth, cssHeight, dpr);
     let renderCssWidth = cssWidth;
     let renderCssHeight = cssHeight;
@@ -593,6 +601,10 @@ export async function openPdfReader(
     renderCount += 1;
     trimPageCache(trimAroundPage);
     syncPdfDebugDataset();
+    mark("pdf_page_render_end");
+    mark(perfEnd);
+    measure("pdf_page_render", "pdf_page_render_start", "pdf_page_render_end");
+    measure(`pdf_page_render:${nextPageNumber}`, perfStart, perfEnd);
     return rendered;
   };
 
@@ -661,6 +673,7 @@ export async function openPdfReader(
     visibleContext.setTransform(1, 0, 0, 1, 0, 0);
     visibleContext.clearRect(0, 0, canvas.width, canvas.height);
     visibleContext.drawImage(rendered.canvas, 0, 0);
+    mark("pdf_canvas_paint");
     pageShell.classList.remove("is-loading");
     pageShell.classList.toggle("is-blank", rendered.isBlank);
     pageShell.dataset.blank = rendered.isBlank ? "true" : "false";
@@ -731,11 +744,11 @@ export async function openPdfReader(
     pageCount: pdf.numPages,
     canvas,
     renderPage,
-    previousPage: () => renderPage(requestedPage - 1),
-    nextPage: () => renderPage(requestedPage + 1),
-    zoomOut: () => setZoom(zoom - PDF_ZOOM_STEP),
-    zoomIn: () => setZoom(zoom + PDF_ZOOM_STEP),
-    setZoom,
+    previousPage: () => timeAsync("pdf_next_prev_render", () => renderPage(requestedPage - 1)),
+    nextPage: () => timeAsync("pdf_next_prev_render", () => renderPage(requestedPage + 1)),
+    zoomOut: () => timeAsync("pdf_zoom_render", () => setZoom(zoom - PDF_ZOOM_STEP)),
+    zoomIn: () => timeAsync("pdf_zoom_render", () => setZoom(zoom + PDF_ZOOM_STEP)),
+    setZoom: (nextZoom: number) => timeAsync("pdf_zoom_render", () => setZoom(nextZoom)),
     setTheme: (theme) => applyPdfCanvasTheme(canvas, theme),
     getCurrentPosition: () => ({
       locator: String(pageNumber),

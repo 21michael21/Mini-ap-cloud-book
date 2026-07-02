@@ -1,5 +1,6 @@
 import mimetypes
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -45,6 +46,7 @@ from backend.app.services import (
 
 mimetypes.add_type("font/woff2", ".woff2")
 logger = logging.getLogger(__name__)
+request_logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(title="Telegram Library API", version="0.1.0")
 settings = get_settings()
@@ -92,12 +94,41 @@ def content_security_policy(settings: Settings) -> str:
 
 @app.middleware("http")
 async def add_security_headers(request, call_next):
-    response = await call_next(request)
-    settings = get_settings()
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Referrer-Policy"] = "no-referrer"
-    response.headers["Content-Security-Policy"] = content_security_policy(settings)
-    return response
+    started_at = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        settings = get_settings()
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Content-Security-Policy"] = content_security_policy(settings)
+        return response
+    finally:
+        log_request_timing(request.method, request.url.path, status_code, started_at)
+
+
+def log_request_timing(method: str, path: str, status_code: int, started_at: float) -> None:
+    if not should_log_request_timing(method, path, status_code):
+        return
+    duration_ms = (time.perf_counter() - started_at) * 1000
+    request_logger.info(
+        "request method=%s path=%s status=%s duration_ms=%.1f",
+        method,
+        path,
+        status_code,
+        duration_ms,
+    )
+
+
+def should_log_request_timing(method: str, path: str, status_code: int) -> bool:
+    if status_code >= 400:
+        return True
+    if method == "OPTIONS":
+        return False
+    if path in {"/", "/health", "/api/version", "/api/home", "/api/books", "/api/folders"}:
+        return True
+    return path.startswith("/api/books/") and path.endswith("/file")
 
 
 def serialize_book(book: Book) -> BookOut:
