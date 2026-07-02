@@ -212,6 +212,42 @@ Server layout:
 
 Backend and bot use the same Docker image. The backend joins the existing `interview-base_default` Docker network so the existing Caddy container can reverse proxy to `telegram-library-backend:8000`.
 
+### One-command VDS deploy and rollback
+
+Run this on the VDS from the repo checkout:
+
+```bash
+ssh root@89.124.84.4
+cd /opt/telegram-library
+./deploy/vps/deploy.sh main
+```
+
+To deploy a specific commit or tag:
+
+```bash
+./deploy/vps/deploy.sh b0923e05ff628dd6badf04522d6b6d315b729185
+```
+
+To roll back to a previous ref:
+
+```bash
+./deploy/vps/deploy.sh --rollback <previous-ref>
+```
+
+The script:
+
+- refuses to build if free disk is below 2.5 GB
+- fetches and checks out the requested ref
+- builds the Docker image before restarting containers
+- runs `docker compose up -d` only after build succeeds
+- waits for `/health` to return `{"status":"ok", ...}`
+- checks that unauthenticated `/api/books` returns `401`
+- checks that `GET /` returns the Mini App shell with a strict CSP header and no `unsafe-inline`/`unsafe-eval`
+- prints the deployed git commit hash
+
+If a step fails, it prints `docker compose ps` plus recent backend/bot logs and
+exits non-zero.
+
 ### Safe VDS deploy on 10 GB disk
 
 The current VDS has about 10 GB of disk. Treat disk as a deployment risk: Docker builds, dangling images, build cache, JSON logs, and downloaded book files can fill the server.
@@ -266,7 +302,46 @@ COVER_IMAGE_MAX_BYTES=2097152
 Do not increase the cache above `536870912` bytes (512 MB) on this VPS size. The backend already respects `FILE_CACHE_MAX_BYTES` and `FILE_CACHE_MAX_AGE_SECONDS` via the file cache cleanup path, so lower the cap first if disk gets tight.
 Keep cover thumbnails small too: `COVER_CACHE_MAX_BYTES=33554432` (32 MB) is enough for alpha testing, and `COVER_IMAGE_MAX_BYTES=2097152` rejects oversized embedded images.
 
-Rollback note: after safe pruning, the previous Docker image may no longer be available locally. Test `/health` and `/api/version` immediately after deploy. If rollback is needed, deploy the previous Git commit again rather than relying on a local old image.
+Rollback note: after safe pruning, the previous Docker image may no longer be available locally. Test `/health` and `/api/version` immediately after deploy. If rollback is needed, deploy the previous Git commit again with `./deploy/vps/deploy.sh --rollback <previous-ref>` rather than relying on a local old image.
+
+### VDS Postgres backups
+
+User libraries, folders, notes, and reading positions live in Postgres, so keep a
+nightly `pg_dump`. Store dumps outside the repo; do not commit or sync them into
+Git.
+
+Example backup script on the VDS:
+
+```bash
+cat >/usr/local/bin/telegram-library-backup.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+BACKUP_DIR=/var/backups/telegram-library
+mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
+
+docker exec telegram-library-postgres \
+  sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
+  > "$BACKUP_DIR/telegram-library-$(date -u +%Y%m%dT%H%M%SZ).dump"
+
+find "$BACKUP_DIR" -type f -name '*.dump' -mtime +14 -delete
+EOF
+chmod +x /usr/local/bin/telegram-library-backup.sh
+```
+
+Cron example:
+
+```bash
+(crontab -l 2>/dev/null; echo '15 3 * * * /usr/local/bin/telegram-library-backup.sh >> /var/log/telegram-library-backup.log 2>&1') | crontab -
+```
+
+Manual backup smoke check:
+
+```bash
+/usr/local/bin/telegram-library-backup.sh
+ls -lh /var/backups/telegram-library
+```
 
 ### VDS Verification Before Phone Testing
 

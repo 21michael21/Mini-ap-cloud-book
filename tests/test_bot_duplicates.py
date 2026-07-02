@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.app.config import Settings, get_settings
 from backend.app.db import Base
-from backend.app.models import Book
+from backend.app.models import Book, User
 
 
 BOT_TOKEN = "123456789:AAabcdefghijklmnopqrstuvwxyz1234567"
@@ -139,6 +139,37 @@ def test_too_large_upload_does_not_download(monkeypatch, tmp_path: Path) -> None
     assert stored[0].too_large is True
     assert stored[0].content_sha256 is None
     assert message.bot.download_count == 0
+
+
+def test_first_successful_upload_gets_onboarding_tip_once(monkeypatch, tmp_path: Path) -> None:
+    bot_main = load_bot_main(monkeypatch)
+    SessionLocal = configure_bot_db(bot_main, tmp_path)
+
+    first = FakeMessage(payload=b"first text", file_unique_id="unique-1", file_id="file-1", user_id=888)
+    second = FakeMessage(payload=b"second text", file_unique_id="unique-2", file_id="file-2", user_id=888)
+    asyncio.run(bot_main.handle_document(first))
+    asyncio.run(bot_main.handle_document(second))
+
+    assert "Tip: you can forward books straight from any channel." in first.answers[-1]
+    assert "Tip: you can forward books straight from any channel." not in second.answers[-1]
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.tg_user_id == 888))
+        assert user is not None
+        assert user.onboarded_at is not None
+
+
+def test_start_and_help_are_concise_onboarding_messages(monkeypatch, tmp_path: Path) -> None:
+    bot_main = load_bot_main(monkeypatch)
+    configure_bot_db(bot_main, tmp_path)
+    message = FakeMessage(payload=b"")
+
+    asyncio.run(bot_main.start(message))
+    asyncio.run(bot_main.help_command(message))
+
+    assert "Forward any book/document here from any chat or channel" in message.answers[0]
+    assert "Supported now: EPUB, FB2, TXT, PDF." in message.answers[0]
+    assert "Files over 20 MB are stored" in message.answers[1]
+    assert "Your files stay private" in message.answers[1]
 
 
 def test_possible_duplicate_heuristic_does_not_block_upload(monkeypatch, tmp_path: Path) -> None:

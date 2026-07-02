@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
@@ -125,7 +126,27 @@ async def download_for_sniffing(message: Message, file_name: str) -> tuple[Path,
 @dp.message(CommandStart())
 async def start(message: Message) -> None:
     await message.answer(
-        "Send me an EPUB, FB2, TXT, or PDF file and I will add it to your Telegram Library.",
+        "\n".join(
+            [
+                "Telegram Library keeps your books and documents in one private Mini App.",
+                "Forward any book/document here from any chat or channel, or send a file directly.",
+                "Supported now: EPUB, FB2, TXT, PDF.",
+            ]
+        ),
+        reply_markup=open_library_keyboard(),
+    )
+
+
+@dp.message(Command("help"))
+async def help_command(message: Message) -> None:
+    await message.answer(
+        "\n".join(
+            [
+                "Send or forward EPUB, FB2, TXT, or PDF files.",
+                "Files over 20 MB are stored in your library, but cannot be opened in-app yet.",
+                "Your files stay private to your Telegram account.",
+            ]
+        ),
         reply_markup=open_library_keyboard(),
     )
 
@@ -220,7 +241,11 @@ async def handle_document(message: Message) -> None:
     )
     normalized_title = normalize_title(title)
 
+    show_first_upload_tip = False
     with SessionLocal() as db:
+        db_user = db.get(User, user.id)
+        existing_book_count = db.scalar(select(func.count(Book.id)).where(Book.user_id == user.id)) or 0
+        show_first_upload_tip = db_user is not None and db_user.onboarded_at is None and existing_book_count == 0
         next_order = db.scalar(select(func.coalesce(func.max(Book.sort_order), 0)).where(Book.user_id == user.id))
         possible_duplicate = find_possible_duplicate(
             db,
@@ -256,6 +281,8 @@ async def handle_document(message: Message) -> None:
         if possible_duplicate is not None:
             event_meta["possible_duplicate_of"] = possible_duplicate.id
         db.add(Event(user_id=user.id, type="file_uploaded", book_id=book.id, meta=event_meta))
+        if show_first_upload_tip and db_user is not None:
+            db_user.onboarded_at = datetime.now(timezone.utc)
         try:
             db.commit()
         except IntegrityError:
@@ -274,8 +301,13 @@ async def handle_document(message: Message) -> None:
         if possible_duplicate is not None
         else ""
     )
+    first_upload_tip = (
+        "\n\nTip: you can forward books straight from any channel. Open the app to organize them into folders."
+        if show_first_upload_tip
+        else ""
+    )
     await message.answer(
-        f"Added to Inbox: {title}.{note}{duplicate_note}\n\nOpen Library to rename or organize it.",
+        f"Added to Inbox: {title}.{note}{duplicate_note}{first_upload_tip}\n\nOpen Library to rename or organize it.",
         reply_markup=open_library_keyboard(),
     )
 

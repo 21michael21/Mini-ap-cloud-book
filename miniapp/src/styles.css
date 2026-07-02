@@ -1167,6 +1167,44 @@ mark {
   font-size: 12px;
 }
 
+.empty-steps {
+  display: grid;
+  gap: 8px;
+  width: min(100%, 360px);
+  margin-top: 18px;
+}
+
+.empty-steps span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+
+.empty-steps b {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.empty-steps--compact {
+  width: min(100%, 300px);
+  margin-top: 14px;
+}
+
 .empty-cta {
   display: inline-flex;
   align-items: center;

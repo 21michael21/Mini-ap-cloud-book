@@ -663,9 +663,13 @@ function renderEmptyHome(): string {
         <div class="empty-icon">${icon("bookOpen")}</div>
       </div>
       <h2>Your library is empty</h2>
-      <p>Send EPUB, FB2, TXT or PDF to the bot.</p>
+      <p>Forward a book from any channel or chat to the bot, or send a file here directly.</p>
+      <div class="empty-steps" aria-label="Ways to add books">
+        <span><b>1</b> Forward from any chat or channel</span>
+        <span><b>2</b> Send EPUB, FB2, TXT, or PDF directly</span>
+      </div>
       <div class="empty-cta">
-        <span>Send EPUB, FB2, TXT or PDF to the bot</span>
+        <span>Open the bot chat to add your first file</span>
         <span class="arrow-bob">${icon("arrowDown")}</span>
       </div>
     </div>
@@ -795,7 +799,11 @@ function renderLibraryEmpty(): string {
     <div class="empty-state empty-state--library">
       <div class="empty-icon">${icon("library")}</div>
       <h2>Nothing here yet</h2>
-      <p>Send EPUB, FB2, TXT or PDF to the bot.</p>
+      <p>Forward a book/document from any chat or channel to the bot, or send EPUB, FB2, TXT, or PDF directly.</p>
+      <div class="empty-steps empty-steps--compact" aria-label="Ways to add books">
+        <span><b>1</b> Forward to bot</span>
+        <span><b>2</b> Send file directly</span>
+      </div>
     </div>
   `;
 }

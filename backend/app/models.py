@@ -27,6 +27,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    onboarded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     books: Mapped[list["Book"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     folders: Mapped[list["Folder"]] = relationship(back_populates="user", cascade="all, delete-orphan")
