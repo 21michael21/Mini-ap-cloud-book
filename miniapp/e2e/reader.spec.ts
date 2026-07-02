@@ -696,6 +696,52 @@ test.describe("reader e2e", () => {
     await maybeScreenshot(page, testInfo, "library-management");
   });
 
+  test("mobile taps keep row actions, sheets, and search focus reliable", async ({ page }, testInfo) => {
+    const stableTitle = "Reader E2E Renamed EPUB";
+    await openLibrary(page);
+    const search = page.locator("#searchInput");
+    await search.fill("Reader E2E Renamed");
+    await expect(search).toBeFocused();
+    await search.pressSequentially(" EPUB");
+    await expect(search).toBeFocused();
+
+    const row = page.locator(".book-row", { hasText: stableTitle }).first();
+    await expect(row).toBeVisible();
+    await row.locator("[data-row-menu]").click();
+    await expect(page.locator(".bottom-sheet")).toBeVisible();
+    await expect(page.locator("#readerStage")).toHaveCount(0);
+    await maybeScreenshotElementIfVisible(page, testInfo, ".sheet-layer", "actions-sheet-reliable-tap");
+
+    await page.locator("#sheetEdit").click();
+    await expect(page.locator(".bottom-sheet")).toBeVisible();
+    await expect(page.locator("#bookTitleInput")).toBeFocused();
+    await page.locator("#bookTitleInput").fill("");
+    await expect(page.locator("#confirmBookEdit")).toBeDisabled();
+    await page.locator("#bookTitleInput").fill(stableTitle);
+
+    let metadataPatchCount = 0;
+    page.on("request", (request) => {
+      if (request.method() === "PATCH" && /\/api\/books\/\d+$/.test(new URL(request.url()).pathname)) {
+        metadataPatchCount += 1;
+      }
+    });
+    const saveButton = page.locator("#confirmBookEdit");
+    await saveButton.click();
+    await saveButton.click({ timeout: 150 }).catch(() => undefined);
+    await expect(page.locator(".toast")).toContainText("Book updated");
+    await page.waitForTimeout(150);
+    expect(metadataPatchCount).toBe(1);
+
+    await search.fill(stableTitle);
+    await expect(search).toBeFocused();
+    await expect(row).toBeVisible();
+    await row.click();
+    await expect(page.locator("#readerStage")).toBeVisible();
+    await expect(page.locator(".bottom-sheet")).toHaveCount(0);
+    await waitForReaderVisibleTextLength(page, "epub");
+    await maybeScreenshot(page, testInfo, "reader-controls-visible-reliable-tap");
+  });
+
   test.skip("duplicate fixture upload path requires Telegram bot document transport", async () => {
     // Local e2e seeds books directly into the backend cache. Telegram document
     // upload/dedup is covered by backend/bot tests, not browser e2e.

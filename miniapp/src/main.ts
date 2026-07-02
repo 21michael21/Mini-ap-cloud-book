@@ -75,6 +75,7 @@ type AppTheme = "day" | "night";
 type ReaderTextMode = "pages" | "scroll";
 type PendingAction = "folder" | "folderEdit" | "folderRemove" | "move" | "edit" | "remove" | "reorder" | "note" | null;
 type ToastKind = "info" | "success" | "error";
+type BookButtonBindRoot = ParentNode & { contains?: (node: Node) => boolean };
 
 const PDF_MIN_ZOOM = 0.75;
 const PDF_MAX_ZOOM = 3;
@@ -229,13 +230,12 @@ async function loadBooks(scope: LibraryScope = selectedFolderId) {
 async function createFolder() {
   hapticImpact();
   activeSheet = { kind: "folder", name: "", error: null };
-  render();
+  updateActiveSheet();
 }
 
 async function submitFolder(name: string) {
   if (!name.trim() || pendingAction) return;
-  pendingAction = "folder";
-  render();
+  setPendingAction("folder");
   try {
     await api<Folder>("/api/folders", {
       method: "POST",
@@ -264,11 +264,10 @@ async function updateFolderName(folder: Folder, name: string) {
   if (pendingAction) return;
   if (!name.trim()) {
     activeSheet = { kind: "folderEdit", folder, name, error: "Folder name must not be empty." };
-    render();
+    updateActiveSheet();
     return;
   }
-  pendingAction = "folderEdit";
-  render();
+  setPendingAction("folderEdit");
   try {
     const updated = await api<Folder>(`/api/folders/${folder.id}`, {
       method: "PATCH",
@@ -292,8 +291,7 @@ async function updateFolderName(folder: Folder, name: string) {
 
 async function removeFolder(folder: Folder) {
   if (pendingAction) return;
-  pendingAction = "folderRemove";
-  render();
+  setPendingAction("folderRemove");
   try {
     await api<void>(`/api/folders/${folder.id}`, { method: "DELETE" });
     if (selectedFolderId === folder.id) selectedFolderId = "all";
@@ -317,8 +315,7 @@ async function removeFolder(folder: Folder) {
 
 async function reorderFolder(folder: Folder, direction: "up" | "down") {
   if (pendingAction) return;
-  pendingAction = "reorder";
-  render();
+  setPendingAction("reorder");
   try {
     await api<Folder>(`/api/folders/${folder.id}/reorder`, {
       method: "PATCH",
@@ -342,8 +339,7 @@ async function reorderFolder(folder: Folder, direction: "up" | "down") {
 
 async function moveBookToFolder(book: Book, folderId: number | null) {
   if (pendingAction) return;
-  pendingAction = "move";
-  render();
+  setPendingAction("move");
   try {
     const updated = await api<Book>(`/api/books/${book.id}/move`, {
       method: "PATCH",
@@ -373,10 +369,9 @@ async function moveBookToFolder(book: Book, folderId: number | null) {
 
 async function reorderBook(book: Book, direction: "up" | "down") {
   if (pendingAction) return;
-  pendingAction = "reorder";
+  setPendingAction("reorder");
   librarySort = "manual";
   writeLibrarySort();
-  render();
   try {
     await api<Book>(`/api/books/${book.id}/reorder`, {
       method: "PATCH",
@@ -410,11 +405,10 @@ async function updateBookMetadata(book: Book, title: string, author: string) {
   if (pendingAction) return;
   if (!title.trim()) {
     activeSheet = { kind: "edit", book, title, author, error: "Title must not be empty." };
-    render();
+    updateActiveSheet();
     return;
   }
-  pendingAction = "edit";
-  render();
+  setPendingAction("edit");
   try {
     const updated = await api<Book>(`/api/books/${book.id}`, {
       method: "PATCH",
@@ -447,8 +441,7 @@ async function updateBookMetadata(book: Book, title: string, author: string) {
 
 async function removeBookFromLibrary(book: Book) {
   if (pendingAction) return;
-  pendingAction = "remove";
-  render();
+  setPendingAction("remove");
   try {
     await api<void>(`/api/books/${book.id}`, { method: "DELETE" });
     if (activeBook?.id === book.id) {
@@ -479,8 +472,7 @@ async function removeBookFromLibrary(book: Book) {
 
 async function createNote(book: Book, locator: string, percent: number, noteText: string) {
   if (pendingAction) return;
-  pendingAction = "note";
-  updateActiveSheet();
+  setPendingAction("note");
   try {
     await api<Note>(`/api/books/${book.id}/notes`, {
       method: "POST",
@@ -520,8 +512,7 @@ async function showNotesForBook(book: Book) {
 
 async function deleteNote(note: Note) {
   if (pendingAction) return;
-  pendingAction = "note";
-  updateActiveSheet();
+  setPendingAction("note");
   try {
     await api<void>(`/api/notes/${note.id}`, { method: "DELETE" });
     hapticNotification("success");
@@ -730,23 +721,23 @@ function renderLibrary(): string {
   const filteredBooks = filterBooks(allBooksState.length ? allBooksState : booksState);
   booksState = filteredBooks;
   if (isLibraryLoading) return renderLibrarySkeleton();
-  const noBooksAtAll = allBooksState.length === 0;
   const hasQuery = searchQuery.trim().length > 0;
 
   return `
     ${renderLibraryTabs()}
     ${renderSearchBox(hasQuery)}
     ${renderSortSelector()}
-    ${
-      noBooksAtAll
-        ? renderLibraryEmpty()
-        : !hasQuery && filteredBooks.length === 0
-          ? renderScopedEmpty()
-        : hasQuery && filteredBooks.length === 0
-          ? renderNoResults()
-          : `<div class="book-list">${filteredBooks.map((book, index) => renderBookRow(book, index)).join("")}</div>`
-    }
+    <div id="libraryResults">${renderLibraryResults()}</div>
   `;
+}
+
+function renderLibraryResults(): string {
+  const noBooksAtAll = allBooksState.length === 0;
+  const hasQuery = searchQuery.trim().length > 0;
+  if (noBooksAtAll) return renderLibraryEmpty();
+  if (!hasQuery && booksState.length === 0) return renderScopedEmpty();
+  if (hasQuery && booksState.length === 0) return renderNoResults();
+  return `<div class="book-list">${booksState.map((book, index) => renderBookRow(book, index)).join("")}</div>`;
 }
 
 function renderLibrarySkeleton(): string {
@@ -795,12 +786,12 @@ function renderTab(label: string, count: number, scope: "inbox" | "all" | "folde
 
 function renderSearchBox(focused: boolean): string {
   return `
-    <label class="search-shell ${focused ? "is-focused" : ""}">
+    <label class="search-shell ${focused ? "is-focused" : ""}" id="searchShell">
       ${icon("search")}
       <input id="searchInput" value="${escapeHtml(searchQuery)}" placeholder="Search title or author" autocomplete="off" />
-      ${focused ? `<button class="clear-search" type="button" id="clearSearch">${icon("x")}</button>` : ""}
+      <button class="clear-search" type="button" id="clearSearch" ${focused ? "" : "hidden"}>${icon("x")}</button>
     </label>
-    ${focused ? `<div class="result-count">${booksState.length} ${booksState.length === 1 ? "result" : "results"}</div>` : ""}
+    <div class="result-count" id="searchResultCount" ${focused ? "" : "hidden"}>${booksState.length} ${booksState.length === 1 ? "result" : "results"}</div>
   `;
 }
 
@@ -1382,12 +1373,12 @@ function bindShellControls() {
   });
 }
 
-function bindBookButtons() {
-  document.querySelectorAll<HTMLElement>("[data-open]").forEach((button) => {
+function bindBookButtons(root: BookButtonBindRoot = document) {
+  root.querySelectorAll<HTMLElement>("[data-open]").forEach((button) => {
     button.addEventListener("click", () => openBookById(Number(button.dataset.open), button.textContent ?? ""));
   });
 
-  document.querySelectorAll<HTMLElement>("[data-row-menu]").forEach((button) => {
+  root.querySelectorAll<HTMLElement>("[data-row-menu]").forEach((button) => {
     button.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
     });
@@ -1398,11 +1389,11 @@ function bindBookButtons() {
       if (!book) return;
       hapticImpact();
       activeSheet = { kind: "actions", book, error: null };
-      render();
+      updateActiveSheet();
     });
   });
 
-  document.querySelectorAll<HTMLElement>(".book-row[data-book-id]").forEach((row) => {
+  root.querySelectorAll<HTMLElement>(".book-row[data-book-id]").forEach((row) => {
     let pressTimer = 0;
     let longPressed = false;
     const id = Number(row.dataset.bookId);
@@ -1416,7 +1407,7 @@ function bindBookButtons() {
         longPressed = true;
         hapticImpact();
         activeSheet = { kind: "actions", book, error: null };
-        render();
+        updateActiveSheet();
       }, 520);
     });
     row.addEventListener("pointerup", () => {
@@ -1425,13 +1416,16 @@ function bindBookButtons() {
     row.addEventListener("pointerleave", () => {
       window.clearTimeout(pressTimer);
     });
+    row.addEventListener("pointercancel", () => {
+      window.clearTimeout(pressTimer);
+    });
     row.addEventListener("contextmenu", (event) => {
       event.preventDefault();
       const book = findBook(id);
       if (!book) return;
       hapticImpact();
       activeSheet = { kind: "actions", book, error: null };
-      render();
+      updateActiveSheet();
     });
     row.addEventListener("click", () => {
       if (longPressed) return;
@@ -1440,15 +1434,15 @@ function bindBookButtons() {
   });
 }
 
-function bindCoverImages(): void {
-  document.querySelectorAll<HTMLImageElement>(".cover-image").forEach((image) => {
+function bindCoverImages(root: ParentNode = document): void {
+  root.querySelectorAll<HTMLImageElement>(".cover-image").forEach((image) => {
     image.addEventListener("error", () => activateCoverFallback(image), { once: true });
   });
-  void loadCoverImages();
+  void loadCoverImages(root);
 }
 
-async function loadCoverImages(): Promise<void> {
-  const images = Array.from(document.querySelectorAll<HTMLImageElement>(".cover-image[data-cover-url]"));
+async function loadCoverImages(root: ParentNode = document): Promise<void> {
+  const images = Array.from(root.querySelectorAll<HTMLImageElement>(".cover-image[data-cover-url]"));
   await Promise.all(
     images.map(async (image) => {
       const path = image.dataset.coverUrl;
@@ -1597,10 +1591,7 @@ function bindLibraryControls() {
     mark("search_input_start");
     searchQuery = (event.target as HTMLInputElement).value;
     booksState = filterBooks(allBooksState);
-    render();
-    const input = document.querySelector<HTMLInputElement>("#searchInput");
-    input?.focus();
-    input?.setSelectionRange(searchQuery.length, searchQuery.length);
+    syncLibrarySearchResults();
     if (searchRenderFrame) window.cancelAnimationFrame(searchRenderFrame);
     searchRenderFrame = window.requestAnimationFrame(() => {
       searchRenderFrame = 0;
@@ -1622,7 +1613,7 @@ function bindLibraryControls() {
   document.querySelector("#manageFolders")?.addEventListener("click", () => {
     hapticImpact();
     activeSheet = { kind: "folderManage", error: null };
-    render();
+    updateActiveSheet();
   });
 }
 
@@ -1633,13 +1624,15 @@ function bindSheetControls() {
       closeSheet();
     }
   });
+  document.querySelector(".bottom-sheet")?.addEventListener("click", (event) => event.stopPropagation());
+  document.querySelector(".bottom-sheet")?.addEventListener("pointerup", (event) => event.stopPropagation());
   if (activeSheet.kind === "folder") {
     const input = document.querySelector<HTMLInputElement>("#folderNameInput");
     input?.focus();
     input?.addEventListener("input", () => {
       if (!activeSheet || activeSheet.kind !== "folder") return;
       activeSheet = { ...activeSheet, name: input.value, error: null };
-      render();
+      syncPendingActionControls();
     });
     document.querySelector("#confirmFolder")?.addEventListener("click", () => {
       if (!activeSheet || activeSheet.kind !== "folder") return;
@@ -1694,6 +1687,7 @@ function bindSheetControls() {
       if (!activeSheet || activeSheet.kind !== "folderEdit") return;
       activeSheet = { ...activeSheet, name: input.value, error: null };
       if (saveButton) saveButton.disabled = !activeSheet.name.trim();
+      syncPendingActionControls();
     });
     document.querySelector("#confirmFolderEdit")?.addEventListener("click", () => {
       if (!activeSheet || activeSheet.kind !== "folderEdit") return;
@@ -1828,6 +1822,7 @@ function bindSheetControls() {
         error: null,
       };
       if (saveButton) saveButton.disabled = !activeSheet.title.trim();
+      syncPendingActionControls();
     };
     titleInput?.addEventListener("input", syncEditSheet);
     authorInput?.addEventListener("input", syncEditSheet);
@@ -1877,7 +1872,36 @@ function startBookReorder(book: Book, direction: "up" | "down") {
 function clearSearch() {
   searchQuery = "";
   booksState = filterBooks(allBooksState);
-  render();
+  const input = document.querySelector<HTMLInputElement>("#searchInput");
+  if (input) input.value = "";
+  syncLibrarySearchResults();
+}
+
+function syncLibrarySearchResults() {
+  if (view !== "library" || isLibraryLoading) {
+    render();
+    return;
+  }
+  const hasQuery = searchQuery.trim().length > 0;
+  const shell = document.querySelector<HTMLElement>("#searchShell");
+  const clearButton = document.querySelector<HTMLButtonElement>("#clearSearch");
+  const resultCount = document.querySelector<HTMLElement>("#searchResultCount");
+  shell?.classList.toggle("is-focused", hasQuery);
+  if (clearButton) clearButton.hidden = !hasQuery;
+  if (resultCount) {
+    resultCount.hidden = !hasQuery;
+    resultCount.textContent = `${booksState.length} ${booksState.length === 1 ? "result" : "results"}`;
+  }
+  const results = document.querySelector<HTMLElement>("#libraryResults");
+  if (!results) {
+    render();
+    return;
+  }
+  results.innerHTML = renderLibraryResults();
+  bindBookButtons(results);
+  bindCoverImages(results);
+  document.querySelector("#clearSearchEmpty")?.addEventListener("click", clearSearch);
+  pruneCoverObjectUrls();
 }
 
 function presentSheet(sheet: NonNullable<SheetState>) {
@@ -1887,26 +1911,19 @@ function presentSheet(sheet: NonNullable<SheetState>) {
 
 function closeSheet() {
   activeSheet = null;
-  if (view === "reader") {
-    document.querySelector(".sheet-layer")?.remove();
-    pruneCoverObjectUrls();
-    return;
-  }
-  render();
+  document.querySelector(".sheet-layer")?.remove();
+  pruneCoverObjectUrls();
 }
 
 function updateActiveSheet() {
-  if (view === "reader") {
-    document.querySelector(".sheet-layer")?.remove();
-    if (activeSheet) {
-      appEl.insertAdjacentHTML("beforeend", renderActiveSheet());
-      bindSheetControls();
-      bindCoverImages();
-      pruneCoverObjectUrls();
-    }
-    return;
+  document.querySelector(".sheet-layer")?.remove();
+  if (activeSheet) {
+    appEl.insertAdjacentHTML("beforeend", renderActiveSheet());
+    bindSheetControls();
+    const sheetLayer = document.querySelector<HTMLElement>(".sheet-layer");
+    bindCoverImages(sheetLayer ?? document);
+    pruneCoverObjectUrls();
   }
-  render();
 }
 
 function replaceBookInState(updated: Book) {
@@ -1968,6 +1985,58 @@ function syncToastElement() {
     return;
   }
   document.body.insertAdjacentHTML("beforeend", renderToast());
+}
+
+function setPendingAction(action: Exclude<PendingAction, null>) {
+  pendingAction = action;
+  syncPendingActionControls();
+}
+
+function syncPendingActionControls() {
+  if (!activeSheet) return;
+  const setButton = (
+    selector: string,
+    action: Exclude<PendingAction, null>,
+    idleLabel: string,
+    busyLabel: string,
+    invalid = false,
+  ) => {
+    const button = document.querySelector<HTMLButtonElement>(selector);
+    if (!button) return;
+    const busy = pendingAction === action;
+    button.disabled = invalid || busy;
+    button.setAttribute("aria-busy", busy ? "true" : "false");
+    button.textContent = busy ? busyLabel : idleLabel;
+  };
+
+  if (activeSheet.kind === "folder") {
+    setButton("#confirmFolder", "folder", "Create", "Creating...", !activeSheet.name.trim());
+  } else if (activeSheet.kind === "folderEdit") {
+    setButton("#confirmFolderEdit", "folderEdit", "Save", "Saving...", !activeSheet.name.trim());
+  } else if (activeSheet.kind === "folderRemove") {
+    setButton("#confirmFolderRemove", "folderRemove", "Delete", "Deleting...");
+  } else if (activeSheet.kind === "move") {
+    setButton("#confirmMove", "move", "Move here", "Moving...");
+  } else if (activeSheet.kind === "edit") {
+    setButton("#confirmBookEdit", "edit", "Save", "Saving...", !activeSheet.title.trim());
+  } else if (activeSheet.kind === "remove") {
+    setButton("#confirmRemove", "remove", "Remove", "Removing...");
+  } else if (activeSheet.kind === "reorderConfirm") {
+    setButton("#confirmReorder", "reorder", "Switch and move", "Moving...");
+  } else if (activeSheet.kind === "note") {
+    setButton("#confirmNote", "note", "Save", "Saving...");
+  }
+
+  const reorderBusy = pendingAction === "reorder";
+  document.querySelectorAll<HTMLButtonElement>("#sheetMoveUp, #sheetMoveDown, [data-folder-up], [data-folder-down]").forEach((button) => {
+    if (reorderBusy) button.disabled = true;
+    button.setAttribute("aria-busy", reorderBusy ? "true" : "false");
+  });
+  const noteBusy = pendingAction === "note";
+  document.querySelectorAll<HTMLButtonElement>("[data-delete-note]").forEach((button) => {
+    button.disabled = noteBusy;
+    button.setAttribute("aria-busy", noteBusy ? "true" : "false");
+  });
 }
 
 function hapticImpact() {

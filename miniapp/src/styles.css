@@ -1378,6 +1378,8 @@ mark {
   box-shadow: var(--shadow-sheet);
   transform: translateZ(0);
   will-change: transform, opacity;
+  contain: layout paint;
+  touch-action: pan-y;
 }
 
 .sheet-handle {
@@ -1488,6 +1490,8 @@ mark {
   background: var(--button-bg);
   color: var(--button-text);
   font-weight: 600;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   text-align: left;
   transition:
     transform var(--motion-fast) var(--ease-press),
@@ -2303,6 +2307,9 @@ foliate-view {
   overflow: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 .reader-setting-row {
@@ -2317,6 +2324,7 @@ foliate-view {
   transition:
     background-color var(--motion-normal) var(--ease-out),
     border-color var(--motion-normal) var(--ease-out);
+  contain: layout paint;
 }
 
 .reader-setting-row > span {
@@ -2349,8 +2357,15 @@ foliate-view {
 }
 
 .reader-settings-sheet .sort-button {
-  min-height: 38px;
+  min-height: 44px;
   color: var(--button-text);
+  touch-action: manipulation;
+}
+
+.reader-stepper .secondary {
+  min-width: 44px;
+  min-height: 44px;
+  touch-action: manipulation;
 }
 
 .reader-settings-sheet .sort-button.active {
