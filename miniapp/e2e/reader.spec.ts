@@ -581,6 +581,56 @@ test.describe("reader e2e", () => {
     await page.unroute("**/api/books/*/cover");
   });
 
+  test("cover fallback is immediate while authenticated cover loads lazily", async ({ page }) => {
+    let releaseCoverFetch: () => void = () => undefined;
+    const coverGate = new Promise<void>((resolve) => {
+      releaseCoverFetch = resolve;
+    });
+    await page.route("**/api/books/*/cover", async (route) => {
+      if (route.request().method() === "GET") await coverGate;
+      await route.continue();
+    });
+    await openLibrary(page);
+    const row = page.locator(".book-row", { hasText: books.simple }).first();
+    await expect(row).toBeVisible();
+    await expect(row.locator(".book-cover").first()).toHaveClass(/cover-fallback-active/);
+    releaseCoverFetch();
+    await expectLoadedCover(row);
+    await page.unroute("**/api/books/*/cover");
+  });
+
+  test("cover object URL cache avoids refetching the same cover across rerenders", async ({ page }) => {
+    await page.addInitScript(() => window.localStorage.setItem("telegram-library-debug-perf", "1"));
+    const simpleBookId = envPayload?.books["simple.epub"] ?? 0;
+    const coverRequestUrls: string[] = [];
+    await page.route("**/api/books/*/cover", async (route) => {
+      if (route.request().method() === "GET") coverRequestUrls.push(route.request().url());
+      await route.continue();
+    });
+    await openLibrary(page);
+    const row = page.locator(".book-row", { hasText: books.simple }).first();
+    await expectLoadedCover(row);
+    const countSimpleCoverRequests = () =>
+      simpleBookId
+        ? coverRequestUrls.filter((url) => url.includes(`/api/books/${simpleBookId}/cover`)).length
+        : coverRequestUrls.length;
+    const initialSimpleRequests = countSimpleCoverRequests();
+    expect(initialSimpleRequests).toBeGreaterThan(0);
+
+    await page.locator("#homeNav").click();
+    await expect(page.locator("#libraryNav")).toBeVisible();
+    await page.locator("#libraryNav").click();
+    const rerenderedRow = page.locator(".book-row", { hasText: books.simple }).first();
+    await expectLoadedCover(rerenderedRow);
+    expect(countSimpleCoverRequests()).toBe(initialSimpleRequests);
+    if (simpleBookId) {
+      await expect
+        .poll(() => page.evaluate((bookId) => performance.getEntriesByName(`cover_cache_hit:${bookId}`).length, simpleBookId))
+        .toBeGreaterThan(0);
+    }
+    await page.unroute("**/api/books/*/cover");
+  });
+
   test("broken cover URL gracefully falls back", async ({ page }) => {
     await page.route("**/api/books/*/cover", (route) => route.fulfill({ status: 404, body: "missing" }));
     await openLibrary(page);
@@ -899,6 +949,7 @@ async function openBookActionsWithoutSearch(page: Page, title: string): Promise<
 
 async function expectLoadedCover(scope: ReturnType<Page["locator"]>): Promise<void> {
   const cover = scope.locator(".book-cover").first();
+  await cover.scrollIntoViewIfNeeded();
   await expect(cover).toBeVisible();
   const image = cover.locator(".cover-image:not(.cover-image-broken)").first();
   await expect(image).toBeVisible();
@@ -908,6 +959,7 @@ async function expectLoadedCover(scope: ReturnType<Page["locator"]>): Promise<vo
 
 async function expectFallbackCover(scope: ReturnType<Page["locator"]>): Promise<void> {
   const cover = scope.locator(".book-cover").first();
+  await cover.scrollIntoViewIfNeeded();
   await expect(cover).toBeVisible();
   await expect(cover).toHaveClass(/cover-fallback-active/);
   await expect(cover.locator(".cover-initials")).toBeVisible();
