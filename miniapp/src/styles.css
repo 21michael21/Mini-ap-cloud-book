@@ -2405,11 +2405,13 @@ body.reader-sepia .reader-settings-sheet .sort-button.active {
   align-items: center;
   justify-content: center;
   min-width: 100%;
+  min-height: min(70vh, 720px);
   width: max-content;
   margin: 0 auto;
   padding-bottom: var(--reader-bottom-clearance);
   border-radius: 12px;
   transition: opacity var(--motion-normal) var(--ease-out);
+  isolation: isolate;
 }
 
 .pdf-canvas {
@@ -2476,8 +2478,50 @@ body.reader-sepia .pdf-canvas {
   opacity: 0.72;
 }
 
+.pdf-render-overlay {
+  position: absolute;
+  z-index: 2;
+  top: 18px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 48px);
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--button-border) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--button-text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -6px);
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
+}
+
+.pdf-page-shell.is-loading .pdf-render-overlay {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.pdf-render-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  animation: pdfSpin 780ms linear infinite;
+}
+
 .pdf-blank-label {
   position: absolute;
+  z-index: 3;
   top: 16px;
   left: 50%;
   display: none;
@@ -2495,6 +2539,12 @@ body.reader-sepia .pdf-canvas {
 
 .pdf-page-shell.is-blank .pdf-blank-label {
   display: block;
+}
+
+@keyframes pdfSpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .glow {

@@ -428,8 +428,10 @@ test.describe("reader e2e", () => {
     await expectPdfPageFrameVisible(page);
     await expectPdfFitWidth(page);
     await expectPdfRuntimeBounded(page);
+    await expect(page.locator(".pdf-render-overlay")).toContainText("Rendering page");
     await expectPdfTheme(page, "light");
     await expect.poll(() => canvasNonBlankScore(page)).toBeGreaterThan(20);
+    await expectPdfPerfMarks(page);
     await maybeScreenshot(page, testInfo, "pdf-page-frame");
     await maybeScreenshot(page, testInfo, "pdf-loading-page-frame");
     await maybeScreenshot(page, testInfo, "pdf-fit-width");
@@ -452,6 +454,7 @@ test.describe("reader e2e", () => {
     await expect.poll(() => canvasCssWidth(page)).toBeGreaterThan(widthBefore);
     await expectPdfRuntimeBounded(page);
     await expectPdfTheme(page, "sepia");
+    await expectPdfPerfMarks(page, { zoom: true });
     await maybeScreenshot(page, testInfo, "pdf-zoomed");
 
     await openPdfSettings(page);
@@ -1291,6 +1294,24 @@ async function expectPdfNormalPageDidNotRetry(page: Page): Promise<void> {
   const { retryCount, operatorListChecks } = stats;
   expect(retryCount).toBe(0);
   expect(operatorListChecks).toBe(0);
+}
+
+async function expectPdfPerfMarks(page: Page, options: { zoom?: boolean } = {}): Promise<void> {
+  await expect
+    .poll(() => page.evaluate(() => performance.getEntriesByName("pdf_page_render_ms").length))
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() => page.evaluate(() => performance.getEntriesByName("pdf_page_paint_ms").length))
+    .toBeGreaterThan(0);
+  const hasBlankRatioMark = await page.evaluate(() =>
+    performance.getEntriesByType("mark").some((entry) => entry.name.startsWith("pdf_blank_ratio:")),
+  );
+  expect(hasBlankRatioMark).toBe(true);
+  if (options.zoom) {
+    await expect
+      .poll(() => page.evaluate(() => performance.getEntriesByName("pdf_zoom_render_ms").length))
+      .toBeGreaterThan(0);
+  }
 }
 
 async function canvasNonBlankScore(page: Page): Promise<number> {

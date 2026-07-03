@@ -35,6 +35,7 @@ const PDF_RENDER_DETECTION_BUDGET_MS = 2500;
 const PDF_OPERATOR_LIST_MIN_BUDGET_MS = 250;
 const PDF_WARM_DELAY_MS = 140;
 const PDF_ZOOM_RENDER_DEBOUNCE_MS = 140;
+const PDF_NAV_SETTLE_FRAME_COUNT = 1;
 
 export async function openPdfReader(
   container: HTMLElement,
@@ -62,7 +63,12 @@ export async function openPdfReader(
   const blankLabel = document.createElement("div");
   blankLabel.className = "pdf-blank-label";
   blankLabel.textContent = "This page appears blank";
+  const loadingOverlay = document.createElement("div");
+  loadingOverlay.className = "pdf-render-overlay";
+  loadingOverlay.setAttribute("aria-hidden", "true");
+  loadingOverlay.innerHTML = '<span class="pdf-render-spinner"></span><span>Rendering page...</span>';
   pageShell.append(canvas);
+  pageShell.append(loadingOverlay);
   pageShell.append(blankLabel);
   container.replaceChildren(pageShell);
   type RenderedPdfPage = {
@@ -142,8 +148,9 @@ export async function openPdfReader(
     const cached = pageCache.get(cacheKey);
     if (cached && !force) return cached;
 
-    const perfStart = `pdf_page_render_start:${nextPageNumber}`;
-    const perfEnd = `pdf_page_render_end:${nextPageNumber}`;
+    const renderToken = `${nextPageNumber}:${performance.now().toFixed(3)}`;
+    const perfStart = `pdf_page_render_start:${renderToken}`;
+    const perfEnd = `pdf_page_render_end:${renderToken}`;
     mark("pdf_page_render_start");
     mark(perfStart);
     const renderStartedAt = performance.now();
@@ -195,6 +202,7 @@ export async function openPdfReader(
       }
     }
     const renderMs = performance.now() - renderStartedAt;
+    mark(`pdf_blank_ratio:${nextPageNumber}:${blankStats.whitePixelRatio.toFixed(4)}`);
     if (import.meta.env.DEV) {
       console.warn(
         "[pdf diagnostic]",
@@ -237,7 +245,8 @@ export async function openPdfReader(
     syncPdfDebugDataset();
     mark("pdf_page_render_end");
     mark(perfEnd);
-    measure("pdf_page_render", "pdf_page_render_start", "pdf_page_render_end");
+    measure("pdf_page_render", perfStart, perfEnd);
+    measure("pdf_page_render_ms", perfStart, perfEnd);
     measure(`pdf_page_render:${nextPageNumber}`, perfStart, perfEnd);
     return rendered;
   };
@@ -295,9 +304,17 @@ export async function openPdfReader(
   const renderPageNow = async (page: number, renderId: number) => {
     const nextPageNumber = Math.min(Math.max(page, 1), pdf.numPages);
     pageShell.classList.add("is-loading");
+    pageShell.dataset.loadingPage = String(nextPageNumber);
+    await waitForAnimationFrames(PDF_NAV_SETTLE_FRAME_COUNT);
+    if (renderId !== requestedRenderId || destroyed) return;
     const rendered = await renderPageToCanvas(nextPageNumber);
-    if (renderId !== requestedRenderId) return;
+    if (renderId !== requestedRenderId || destroyed) return;
 
+    const paintToken = `${nextPageNumber}:${performance.now().toFixed(3)}`;
+    const paintStart = `pdf_page_paint_start:${paintToken}`;
+    const paintEnd = `pdf_page_paint_end:${paintToken}`;
+    mark("pdf_page_paint_start");
+    mark(paintStart);
     pageNumber = nextPageNumber;
     canvas.width = rendered.canvas.width;
     canvas.height = rendered.canvas.height;
@@ -308,7 +325,12 @@ export async function openPdfReader(
     visibleContext.clearRect(0, 0, canvas.width, canvas.height);
     visibleContext.drawImage(rendered.canvas, 0, 0);
     mark("pdf_canvas_paint");
+    await waitForAnimationFrames(1);
+    mark("pdf_page_paint_end");
+    mark(paintEnd);
+    measure("pdf_page_paint_ms", paintStart, paintEnd);
     pageShell.classList.remove("is-loading");
+    delete pageShell.dataset.loadingPage;
     pageShell.classList.toggle("is-blank", rendered.isBlank);
     pageShell.dataset.blank = rendered.isBlank ? "true" : "false";
     pageShell.dataset.whitePixelRatio = rendered.whitePixelRatio.toFixed(4);
@@ -380,9 +402,9 @@ export async function openPdfReader(
     renderPage,
     previousPage: () => timeAsync("pdf_next_prev_render", () => renderPage(requestedPage - 1)),
     nextPage: () => timeAsync("pdf_next_prev_render", () => renderPage(requestedPage + 1)),
-    zoomOut: () => timeAsync("pdf_zoom_render", () => setZoom(zoom - PDF_ZOOM_STEP)),
-    zoomIn: () => timeAsync("pdf_zoom_render", () => setZoom(zoom + PDF_ZOOM_STEP)),
-    setZoom: (nextZoom: number) => timeAsync("pdf_zoom_render", () => setZoom(nextZoom)),
+    zoomOut: () => timeAsync("pdf_zoom_render", () => timeAsync("pdf_zoom_render_ms", () => setZoom(zoom - PDF_ZOOM_STEP))),
+    zoomIn: () => timeAsync("pdf_zoom_render", () => timeAsync("pdf_zoom_render_ms", () => setZoom(zoom + PDF_ZOOM_STEP))),
+    setZoom: (nextZoom: number) => timeAsync("pdf_zoom_render", () => timeAsync("pdf_zoom_render_ms", () => setZoom(nextZoom))),
     setTheme: (theme) => applyPdfCanvasTheme(canvas, theme),
     getCurrentPosition: () => ({
       locator: String(pageNumber),
@@ -428,6 +450,12 @@ async function waitForStablePdfContainerWidth(container: HTMLElement): Promise<n
     previous = width;
   }
   return Math.max(Math.floor(container.clientWidth || container.getBoundingClientRect().width || window.innerWidth), 1);
+}
+
+async function waitForAnimationFrames(count: number): Promise<void> {
+  for (let index = 0; index < count; index += 1) {
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+  }
 }
 
 async function renderPdfPageCanvas(
